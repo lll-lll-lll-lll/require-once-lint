@@ -2,7 +2,7 @@
     "name": "lll-lll-lll-lll/php-redundant-require-once",
     "description": "Detect redundant require_once statements for files already covered by Composer autoload.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
     "require": {
         "php": "^8.3 || ^8.4 || ^8.5",
         "ext-json": "*",
