@@ -23,6 +23,14 @@ use RedundantRequireOnce\Tokenizer\TokenHelper;
 final class ClassReferenceDetector
 {
     /**
+     * PHP built-in scalar and special type names that must not be treated as class references.
+     */
+    private const BUILTIN_TYPES = [
+        'int', 'string', 'bool', 'float', 'array', 'callable',
+        'iterable', 'object', 'mixed', 'void', 'null', 'false', 'true', 'never',
+    ];
+
+    /**
      * Detects class references in a file.
      *
      * @param string $content PHP source code
@@ -197,6 +205,14 @@ final class ClassReferenceDetector
      */
     private function parseUseStatement(array $tokens, int $i, int $tokenCount): array
     {
+        // Closure use clauses (`function () use ($var) {}`) start with `(` after `use`.
+        // They are variable captures, not namespace imports, so skip them entirely.
+        $peek = $i + 1;
+        TokenHelper::skipTrivia($tokens, $peek);
+        if (isset($tokens[$peek]) && $tokens[$peek]->text === '(') {
+            return [];
+        }
+
         $uses = [];
         $current = '';
         $alias = null;
@@ -612,7 +628,7 @@ final class ClassReferenceDetector
                 $text = TokenHelper::text($token);
                 // Exclude builtin scalar and special types.
                 $lowerText = strtolower($text);
-                if (in_array($lowerText, ['int', 'string', 'bool', 'float', 'array', 'callable', 'iterable', 'object', 'mixed', 'void', 'null', 'false', 'true', 'never'], true)) {
+                if (in_array($lowerText, self::BUILTIN_TYPES, true)) {
                     continue;
                 }
                 $current .= $text;
@@ -663,7 +679,7 @@ final class ClassReferenceDetector
                     $text = TokenHelper::text($token);
                     // Exclude builtin scalar and special types.
                     $lowerText = strtolower($text);
-                    if (in_array($lowerText, ['int', 'string', 'bool', 'float', 'array', 'callable', 'iterable', 'object', 'mixed', 'void', 'null', 'false', 'true', 'never'], true)) {
+                    if (in_array($lowerText, self::BUILTIN_TYPES, true)) {
                         continue;
                     }
                     $returnType .= $text;
@@ -835,10 +851,7 @@ final class ClassReferenceDetector
             if (TokenHelper::isNameToken($id)) {
                 $text = TokenHelper::text($token);
                 $lowerText = strtolower($text);
-                if (in_array($lowerText, [
-                    'int', 'string', 'bool', 'float', 'array', 'callable',
-                    'iterable', 'object', 'mixed', 'void', 'null', 'false', 'true', 'never',
-                ], true)) {
+                if (in_array($lowerText, self::BUILTIN_TYPES, true)) {
                     $current = '';  // Scalar and builtin types are not class references.
                     continue;
                 }

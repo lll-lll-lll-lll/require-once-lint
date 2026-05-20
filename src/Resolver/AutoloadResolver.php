@@ -219,8 +219,7 @@ final class AutoloadResolver
             }
 
             // Detect class/interface/trait/enum declarations.
-            $enumToken = defined('T_ENUM') ? T_ENUM : -1;
-            if (in_array($token[0], [T_CLASS, T_INTERFACE, T_TRAIT, $enumToken], true)) {
+            if (in_array($token[0], [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM], true)) {
                 if ($token[0] === T_CLASS && $this->isAnonymousClass($tokens, $i)) {
                     continue;
                 }

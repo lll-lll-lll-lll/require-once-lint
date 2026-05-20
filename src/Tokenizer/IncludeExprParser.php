@@ -20,7 +20,6 @@ final class IncludeExprParser
      */
     public function parseDefine(array $tokens, int $index, array $consts, string $file): ?array
     {
-        $count = count($tokens);
         $cursor = $index + 1;
         TokenHelper::skipTrivia($tokens, $cursor);
         $openParen = $tokens[$cursor] ?? null;
@@ -29,8 +28,7 @@ final class IncludeExprParser
         }
 
         $cursor++;
-        $argsTokens = [];
-        list($argsTokens, $cursor) = $this->extracted($cursor, $count, $tokens, $argsTokens);
+        [$argsTokens, $cursor] = $this->readUntilMatchingCloseParen($tokens, $cursor);
 
         $args = TokenHelper::splitArgs($argsTokens);
         if (count($args) < 2) {
@@ -69,7 +67,7 @@ final class IncludeExprParser
         $firstToken = $tokens[$cursor] ?? null;
         if ($firstToken !== null && $firstToken->text === '(') {
             $cursor++;
-            list($exprTokens, $cursor) = $this->extracted($cursor, $count, $tokens, $exprTokens);
+            [$exprTokens] = $this->readUntilMatchingCloseParen($tokens, $cursor);
 
             return $exprTokens;
         }
@@ -98,14 +96,17 @@ final class IncludeExprParser
     }
 
     /**
-     * @param int $cursor
-     * @param int $count
+     * Reads tokens until the matching closing parenthesis.
+     * Assumes the cursor is positioned just after an opening `(` (depth = 1).
+     *
      * @param list<Token> $tokens Token list
-     * @param array $exprTokens Collected expression tokens
-     * @return array{0: array, 1: int}
+     * @param int $cursor Position just after the opening `(`
+     * @return array{0: list<Token>, 1: int} [collected tokens, cursor pointing at the matching `)`]
      */
-    public function extracted(int $cursor, int $count, array $tokens, array $exprTokens): array
+    private function readUntilMatchingCloseParen(array $tokens, int $cursor): array
     {
+        $count = count($tokens);
+        $collected = [];
         $depth = 1;
         while ($cursor < $count) {
             $token = $tokens[$cursor];
@@ -117,9 +118,9 @@ final class IncludeExprParser
                     break;
                 }
             }
-            $exprTokens[] = $token;
+            $collected[] = $token;
             $cursor++;
         }
-        return [$exprTokens, $cursor];
+        return [$collected, $cursor];
     }
 }

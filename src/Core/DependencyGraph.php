@@ -23,9 +23,8 @@ final class DependencyGraph
     {
         $this->repoRoot = PathHelper::normalize($repoRoot);
         foreach ($edges as $edge) {
-            $type = $edge['type'] ?? 'require_once';
-            $this->forward[$edge['from']][] = ['node' => $edge['to'], 'type' => $type];
-            $this->reverse[$edge['to']][] = ['node' => $edge['from'], 'type' => $type];
+            $this->forward[$edge['from']][] = ['node' => $edge['to'], 'type' => $edge['type']];
+            $this->reverse[$edge['to']][] = ['node' => $edge['from'], 'type' => $edge['type']];
         }
     }
 

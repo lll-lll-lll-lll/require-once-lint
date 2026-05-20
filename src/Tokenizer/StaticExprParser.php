@@ -131,6 +131,9 @@ final class StaticExprParser
             return $text;
         }
 
+        // Identifier token: dispatch to dirname() (case-insensitive per PHP function semantics)
+        // or a known constant (case-sensitive per PHP 8 define() semantics).
+        // Unknown identifiers are intentionally not guessed at; they fall through to null.
         if ($id === T_STRING) {
             $this->cursor++;
             $lower = strtolower($text);
@@ -176,7 +179,10 @@ final class StaticExprParser
             if ($levelToken === null || $levelToken->id !== T_LNUMBER) {
                 return null;
             }
-            $levels = max(1, (int)$levelToken->text);
+            $levels = (int)$levelToken->text;
+            if ($levels <= 0) {
+                return null;
+            }
             $this->cursor++;
         }
 

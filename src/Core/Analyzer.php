@@ -400,7 +400,6 @@ final class Analyzer
         $tokenCount = count($tokens);
         $namespace = '';
         $classNames = [];
-        $enumToken = defined('T_ENUM') ? T_ENUM : -1;
 
         for ($i = 0; $i < $tokenCount; $i++) {
             $token = $tokens[$i];
@@ -420,7 +419,7 @@ final class Analyzer
                 continue;
             }
 
-            if (!in_array($id, [T_CLASS, T_INTERFACE, T_TRAIT, $enumToken], true)) {
+            if (!in_array($id, [T_CLASS, T_INTERFACE, T_TRAIT, T_ENUM], true)) {
                 continue;
             }
 

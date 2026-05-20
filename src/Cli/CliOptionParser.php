@@ -173,7 +173,7 @@ final class CliOptionParser
                 if (str_starts_with($rawValue, '-') && !ctype_digit(substr($rawValue, 1))) {
                     throw new CliOptionParseException("{$optionName} requires a value, got '{$rawValue}'");
                 }
-                return [$resultKey, $this->parsePositiveInt($rawValue, $optionName), $i + 1];
+                return [$resultKey, $this->parseNonNegativeInt($rawValue, $optionName), $i + 1];
             }
 
             // --option=value form
@@ -183,7 +183,7 @@ final class CliOptionParser
                 if ($rawValue === '') {
                     throw new CliOptionParseException("{$optionName} requires a non-empty value");
                 }
-                return [$resultKey, $this->parsePositiveInt($rawValue, $optionName), $i];
+                return [$resultKey, $this->parseNonNegativeInt($rawValue, $optionName), $i];
             }
         }
 
@@ -191,11 +191,11 @@ final class CliOptionParser
     }
 
     /**
-     * Parses a string as a non-negative integer.
+     * Parses a string as a non-negative integer (allows zero).
      *
      * @throws CliOptionParseException If the value is invalid
      */
-    private function parsePositiveInt(string $value, string $optionName): int
+    private function parseNonNegativeInt(string $value, string $optionName): int
     {
         if (!ctype_digit($value)) {
             throw new CliOptionParseException("{$optionName} requires a non-negative integer, got '{$value}'");

@@ -209,13 +209,13 @@ final class StaticExprParserTest extends TestCase
         self::assertSame('/project/src', $this->parse('dirname(__FILE__, 1)'));
     }
 
-    public function testDirnameWithLevel0TreatedAs1(): void
+    public function testDirnameWithLevel0ReturnsNull(): void
     {
-        // levels=0 is normalized to max(1, 0) = 1.
-        self::assertSame('/project/src', $this->parse('dirname(__FILE__, 0)'));
+        // levels <= 0 is treated as unresolvable to avoid silent coercion.
+        self::assertNull($this->parse('dirname(__FILE__, 0)'));
     }
 
-    public function testDirnameWithNegativeLevelTreatedAs1(): void
+    public function testDirnameWithNegativeLevelReturnsNull(): void
     {
         // T_LNUMBER is an unsigned integer token, so -1 becomes
         // T_MINUS + T_LNUMBER and therefore returns null here.
