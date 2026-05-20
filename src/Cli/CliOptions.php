@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace RedundantRequireOnce\Cli;
 
-final readonly class CliOptions
+final class CliOptions
 {
     /**
      * @param array<string, string> $consts

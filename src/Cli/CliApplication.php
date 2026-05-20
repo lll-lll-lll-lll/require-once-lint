@@ -30,7 +30,7 @@ final class CliApplication
     public function __construct(
         mixed $stdout = null,
         mixed $stderr = null,
-        private readonly ?string $repoRoot = null,
+        private ?string $repoRoot = null,
     ) {
         $this->stdout = $stdout ?? STDOUT;
         $this->stderr = $stderr ?? STDERR;

@@ -10,17 +10,17 @@ namespace RedundantRequireOnce\Tokenizer;
 final class TokenHelper
 {
     /** Unresolvable because the require_once expression contains a variable. */
-    public const string REASON_VARIABLE      = 'variable';
+    public const REASON_VARIABLE      = 'variable';
     /** Unresolvable because the expression contains an object method call. */
-    public const string REASON_METHOD_CALL   = 'method_call';
+    public const REASON_METHOD_CALL   = 'method_call';
     /** Unresolvable because the expression contains static access (`::`). */
-    public const string REASON_STATIC_ACCESS = 'static_access';
+    public const REASON_STATIC_ACCESS = 'static_access';
     /** Unresolvable because the expression contains an unknown constant. */
-    public const string REASON_UNKNOWN_CONST = 'unknown_const';
+    public const REASON_UNKNOWN_CONST = 'unknown_const';
     /** Unresolvable because the expression is too complex to classify above. */
-    public const string REASON_COMPLEX       = 'complex';
+    public const REASON_COMPLEX       = 'complex';
     /** Fallback used when no reason could be determined. */
-    public const string REASON_UNKNOWN       = 'unknown';
+    public const REASON_UNKNOWN       = 'unknown';
 
     /**
      * Returns the token ID. For single-character tokens this is null.

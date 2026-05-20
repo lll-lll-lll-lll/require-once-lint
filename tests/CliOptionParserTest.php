@@ -6,8 +6,8 @@ namespace RedundantRequireOnce\Tests;
 
 use PHPUnit\Framework\TestCase;
 use RedundantRequireOnce\Cli\CliOptionParser;
-use RedundantRequireOnce\Exception\CliOptionParseException;
 use RedundantRequireOnce\Cli\CliOptions;
+use RedundantRequireOnce\Exception\CliOptionParseException;
 
 final class CliOptionParserTest extends TestCase
 {

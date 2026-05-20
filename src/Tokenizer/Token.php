@@ -11,7 +11,7 @@ namespace RedundantRequireOnce\Tokenizer;
  * token_get_all() (array{int, string, int}) and single-character string tokens.
  * For single-character tokens, id is null and line is 0.
  */
-final readonly class Token
+final class Token
 {
     public function __construct(
         public ?int   $id,

@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace RedundantRequireOnce\Core;
 
+use FilesystemIterator;
+use RecursiveCallbackFilterIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use RedundantRequireOnce\Exception\AnalyzerException;
 use RedundantRequireOnce\Resolver\AutoloadResolver;
 use RedundantRequireOnce\Resolver\ClassReferenceDetector;
 use RedundantRequireOnce\Tokenizer\IncludeExprParser;
 use RedundantRequireOnce\Tokenizer\PathHelper;
 use RedundantRequireOnce\Tokenizer\Token;
 use RedundantRequireOnce\Tokenizer\TokenHelper;
-use FilesystemIterator;
-use RecursiveCallbackFilterIterator;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use SplFileInfo;
-use RedundantRequireOnce\Exception\AnalyzerException;
 
 /**
  * Analyzes PHP files to detect redundant require_once statements.
