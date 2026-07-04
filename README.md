@@ -153,6 +153,15 @@ safely and left to Composer's autoloader.
 3. Reports a `require_once` as redundant when its resolved target is in the
    autoloadable set.
 
+## Relationship to PHPStan and Rector
+
+depone isn't a replacement for PHPStan, Psalm, or Rector — use it alongside
+them. It covers one narrow thing they don't have a rule for: deciding whether
+a `require_once` is made redundant by Composer autoload. That decision is a
+path-resolution + autoload-matching problem rather than an AST transformation,
+which is why it lives as a small standalone tool. It is also report-only by
+design and never rewrites your code.
+
 ## Development
 
 ```sh
