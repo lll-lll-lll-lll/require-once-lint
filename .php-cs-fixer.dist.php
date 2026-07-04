@@ -11,7 +11,7 @@ $finder = Finder::create()
         __DIR__ . '/tests',
     ])
     ->append([
-        __DIR__ . '/bin/php-find-redundant-require-once',
+        __DIR__ . '/bin/depone',
     ])
     ->name('*.php');
 
