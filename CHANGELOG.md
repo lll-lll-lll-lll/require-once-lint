@@ -9,6 +9,8 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-04
+
 ### Added
 
 - Detect redundant `require_once` statements whose targets are already covered
@@ -19,4 +21,5 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 - `--trace` option: show reverse caller traces (which files require the given
   file, and from which entrypoints).
 
-[Unreleased]: https://github.com/lll-lll-lll-lll/require-once-lint/commits/main
+[Unreleased]: https://github.com/lll-lll-lll-lll/require-once-lint/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/lll-lll-lll-lll/require-once-lint/releases/tag/v0.1.0
