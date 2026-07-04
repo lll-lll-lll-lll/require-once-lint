@@ -1,0 +1,10 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+use Depone\Internal\Cli\CliApplication;
+
+exit((new CliApplication())($argv));
