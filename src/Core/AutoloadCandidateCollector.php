@@ -8,6 +8,7 @@ use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Depone\Internal\Exception\AnalyzerException;
+use Depone\Internal\Resolver\ComposerAutoloadConfig;
 use Depone\Internal\Tokenizer\PathHelper;
 use SplFileInfo;
 
@@ -53,27 +54,20 @@ final class AutoloadCandidateCollector
             throw new AnalyzerException("Failed to decode composer.json");
         }
 
+        $config = new ComposerAutoloadConfig($this->repoRoot);
+
         $files = [];
         $candidateFiles = [];
 
-        foreach (['autoload', 'autoload-dev'] as $sectionName) {
-            $autoload = $composer[$sectionName] ?? [];
-            if (!is_array($autoload)) {
-                continue;
-            }
+        // files: individual files
+        $this->collectFromFiles($config->filesEntries(), $files);
 
-            // files: individual files
-            $this->collectFromFiles($autoload['files'] ?? [], $files);
+        // classmap: directories or individual files
+        $this->collectFromPaths($config->classmapEntries(), $candidateFiles);
 
-            // classmap: directories or individual files
-            $this->collectFromClassmap($autoload['classmap'] ?? [], $candidateFiles);
-
-            // psr-4: namespace => directory mapping
-            $this->collectFromPsr4($autoload['psr-4'] ?? [], $candidateFiles);
-
-            // psr-0: namespace => directory mapping (legacy)
-            $this->collectFromPsr4($autoload['psr-0'] ?? [], $candidateFiles);
-        }
+        // psr-4 / psr-0: namespace => directory mapping
+        $this->collectFromPaths($this->flattenDirs($config->psr4()), $candidateFiles);
+        $this->collectFromPaths($this->flattenDirs($config->psr0()), $candidateFiles);
 
         return [
             'candidates' => $candidateFiles,
@@ -82,21 +76,34 @@ final class AutoloadCandidateCollector
     }
 
     /**
-     * Collects files from classmap entries.
+     * Flattens prefix => directories rules into a plain list of directories,
+     * discarding the prefix (the candidate collector does not need it).
      *
-     * @param array<string, true> $files Destination array, passed by reference
+     * @param array<string, list<string>> $rules
+     * @return list<string>
      */
-    private function collectFromClassmap(mixed $entries, array &$files): void
+    private function flattenDirs(array $rules): array
     {
-        if (!is_array($entries)) {
-            return;
+        $dirs = [];
+        foreach ($rules as $paths) {
+            foreach ($paths as $path) {
+                $dirs[] = $path;
+            }
         }
 
+        return $dirs;
+    }
+
+    /**
+     * Collects files from classmap/psr-4/psr-0 path entries (files or directories).
+     *
+     * @param list<string> $entries
+     * @param array<string, true> $files Destination array, passed by reference
+     */
+    private function collectFromPaths(array $entries, array &$files): void
+    {
         foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
+            $absolute = PathHelper::normalize($entry);
             $this->collectPhpFilesFromPath($absolute, $files);
         }
     }
@@ -104,45 +111,15 @@ final class AutoloadCandidateCollector
     /**
      * Collects files from `files` entries.
      *
+     * @param list<string> $entries
      * @param array<string, true> $files Destination array, passed by reference
      */
-    private function collectFromFiles(mixed $entries, array &$files): void
+    private function collectFromFiles(array $entries, array &$files): void
     {
-        if (!is_array($entries)) {
-            return;
-        }
-
         foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
+            $absolute = PathHelper::normalize($entry);
             if (is_file($absolute)) {
                 $files[$absolute] = true;
-            }
-        }
-    }
-
-    /**
-     * Collects files from psr-4/psr-0 entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromPsr4(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $paths) {
-            // Paths may be declared as a string or an array.
-            $pathList = is_array($paths) ? $paths : [$paths];
-            foreach ($pathList as $path) {
-                if (!is_string($path)) {
-                    continue;
-                }
-                $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($path, '/'));
-                $this->collectPhpFilesFromPath($absolute, $files);
             }
         }
     }

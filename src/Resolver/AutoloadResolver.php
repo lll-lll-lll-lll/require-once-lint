@@ -26,12 +26,9 @@ final class AutoloadResolver
     /** @var array<string, string> classmap (class => file) */
     private array $classmap = [];
 
-    private string $repoRoot;
-
     public function __construct(string $repoRoot)
     {
-        $this->repoRoot = rtrim($repoRoot, '/');
-        $this->loadComposerAutoload();
+        $this->loadComposerAutoload($repoRoot);
     }
 
     /**
@@ -133,76 +130,19 @@ final class AutoloadResolver
     /**
      * Loads autoload settings from composer.json.
      */
-    private function loadComposerAutoload(): void
+    private function loadComposerAutoload(string $repoRoot): void
     {
-        $composerPath = $this->repoRoot . '/composer.json';
-        if (!file_exists($composerPath)) {
-            return;
-        }
+        $config = new ComposerAutoloadConfig($repoRoot);
 
-        $json = file_get_contents($composerPath);
-        if ($json === false) {
-            return;
-        }
+        $this->psr4 = $config->psr4();
+        $this->psr0 = $config->psr0();
 
-        $composer = json_decode($json, true);
-        if (!is_array($composer)) {
-            return;
-        }
-
-        // Load both autoload and autoload-dev sections.
-        foreach (['autoload', 'autoload-dev'] as $key) {
-            if (!isset($composer[$key]) || !is_array($composer[$key])) {
-                continue;
-            }
-
-            $autoload = $composer[$key];
-
-            // PSR-4
-            if (isset($autoload['psr-4']) && is_array($autoload['psr-4'])) {
-                foreach ($autoload['psr-4'] as $prefix => $paths) {
-                    if (!is_string($prefix)) {
-                        continue;
-                    }
-                    $pathList = is_array($paths) ? $paths : [$paths];
-                    foreach ($pathList as $path) {
-                        if (!is_string($path)) {
-                            continue;
-                        }
-                        $this->psr4[$prefix][] = $this->repoRoot . '/' . rtrim($path, '/');
-                    }
-                }
-            }
-
-            // PSR-0
-            if (isset($autoload['psr-0']) && is_array($autoload['psr-0'])) {
-                foreach ($autoload['psr-0'] as $prefix => $paths) {
-                    if (!is_string($prefix)) {
-                        continue;
-                    }
-                    $pathList = is_array($paths) ? $paths : [$paths];
-                    foreach ($pathList as $path) {
-                        if (!is_string($path)) {
-                            continue;
-                        }
-                        $this->psr0[$prefix][] = $this->repoRoot . '/' . rtrim($path, '/');
-                    }
-                }
-            }
-
-            // classmap: scan files and collect declared classes.
-            if (isset($autoload['classmap']) && is_array($autoload['classmap'])) {
-                foreach ($autoload['classmap'] as $path) {
-                    if (!is_string($path)) {
-                        continue;
-                    }
-                    $fullPath = $this->repoRoot . '/' . $path;
-                    if (is_dir($fullPath)) {
-                        $this->scanDirectoryForClasses($fullPath);
-                    } elseif (is_file($fullPath)) {
-                        $this->scanFileForClasses($fullPath);
-                    }
-                }
+        // classmap: scan files and collect declared classes.
+        foreach ($config->classmapEntries() as $fullPath) {
+            if (is_dir($fullPath)) {
+                $this->scanDirectoryForClasses($fullPath);
+            } elseif (is_file($fullPath)) {
+                $this->scanFileForClasses($fullPath);
             }
         }
 
