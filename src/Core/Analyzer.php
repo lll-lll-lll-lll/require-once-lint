@@ -9,8 +9,6 @@ use RecursiveCallbackFilterIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Depone\Internal\Exception\AnalyzerException;
-use Depone\Internal\Resolver\AutoloadResolver;
-use Depone\Internal\Tokenizer\DeclaredClassExtractor;
 use Depone\Internal\Tokenizer\IncludeExprParser;
 use Depone\Internal\Tokenizer\PathHelper;
 use Depone\Internal\Tokenizer\Token;
@@ -166,161 +164,21 @@ final class Analyzer
      */
     private function collectAutoloadedFiles(): array
     {
-        $composerPath = $this->repoRoot . '/composer.json';
-        if (!is_file($composerPath)) {
-            throw new AnalyzerException("Failed to read composer.json");
-        }
-        $json = file_get_contents($composerPath);
-        if (!is_string($json)) {
-            throw new AnalyzerException("Failed to read composer.json");
-        }
-        $composer = json_decode($json, true);
-        if (!is_array($composer)) {
-            throw new AnalyzerException("Failed to decode composer.json");
-        }
+        $roundTrip = new AutoloadRoundTrip($this->repoRoot);
+        $result = $roundTrip->collect();
 
-        $files = [];
-        $candidateFiles = [];
-
-        foreach (['autoload', 'autoload-dev'] as $sectionName) {
-            $autoload = $composer[$sectionName] ?? [];
-            if (!is_array($autoload)) {
-                continue;
-            }
-
-            // files: individual files
-            $this->collectFromFiles($autoload['files'] ?? [], $files);
-
-            // classmap: directories or individual files
-            $this->collectFromClassmap($autoload['classmap'] ?? [], $candidateFiles);
-
-            // psr-4: namespace => directory mapping
-            $this->collectFromPsr4($autoload['psr-4'] ?? [], $candidateFiles);
-
-            // psr-0: namespace => directory mapping (legacy)
-            $this->collectFromPsr4($autoload['psr-0'] ?? [], $candidateFiles);
-        }
-
-        $resolver = new AutoloadResolver($this->repoRoot);
-        $classExtractor = new DeclaredClassExtractor();
-        foreach (array_keys($candidateFiles) as $filePath) {
-            foreach ($this->extractDeclaredClassNames($classExtractor, $filePath) as $className) {
-                $resolved = $resolver->resolve($className);
-                if ($resolved !== null && PathHelper::normalize($resolved) === PathHelper::normalize($filePath)) {
-                    $files[PathHelper::normalize($filePath)] = true;
+        $files = $result['eager'];
+        foreach ($result['candidates'] as $candidate) {
+            foreach ($candidate['classes'] as $class) {
+                $resolved = $class['verbose']['resolved'];
+                if ($resolved !== null && PathHelper::normalize($resolved) === $candidate['file']) {
+                    $files[$candidate['file']] = true;
                     break;
                 }
             }
         }
 
         return $files;
-    }
-
-    /**
-     * Collects files from classmap entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromClassmap(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
-            $this->collectPhpFilesFromPath($absolute, $files);
-        }
-    }
-
-    /**
-     * Collects files from `files` entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromFiles(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
-            if (is_file($absolute)) {
-                $files[$absolute] = true;
-            }
-        }
-    }
-
-    /**
-     * Collects files from psr-4/psr-0 entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromPsr4(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $paths) {
-            // Paths may be declared as a string or an array.
-            $pathList = is_array($paths) ? $paths : [$paths];
-            foreach ($pathList as $path) {
-                if (!is_string($path)) {
-                    continue;
-                }
-                $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($path, '/'));
-                $this->collectPhpFilesFromPath($absolute, $files);
-            }
-        }
-    }
-
-    /**
-     * Collects PHP files from the given path, whether it is a file or directory.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectPhpFilesFromPath(string $absolute, array &$files): void
-    {
-        if (is_dir($absolute)) {
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($absolute, FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iterator as $info) {
-                /** @var SplFileInfo $info */
-                if ($info->isFile() && strtolower($info->getExtension()) === 'php') {
-                    $files[PathHelper::normalize((string)$info->getPathname())] = true;
-                }
-            }
-            return;
-        }
-
-        if (is_file($absolute)) {
-            $files[$absolute] = true;
-        }
-    }
-
-    /**
-     * Reads the given file and extracts the declared class names (FQCN) it contains.
-     * Returns an empty array when the file cannot be read.
-     *
-     * @return list<string>
-     */
-    private function extractDeclaredClassNames(DeclaredClassExtractor $classExtractor, string $filePath): array
-    {
-        $content = file_get_contents($filePath);
-        if (!is_string($content)) {
-            return [];
-        }
-
-        return $classExtractor->extract($content);
     }
 
     /**

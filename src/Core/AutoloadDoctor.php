@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Depone\Internal\Core;
 
 use Depone\Internal\Exception\AnalyzerException;
-use Depone\Internal\Resolver\AutoloadResolver;
-use Depone\Internal\Tokenizer\DeclaredClassExtractor;
 use Depone\Internal\Tokenizer\PathHelper;
 
 /**
@@ -15,6 +13,7 @@ use Depone\Internal\Tokenizer\PathHelper;
  * a path that does not exist, classes matching no autoload rule at all, and
  * candidate files that declare no types.
  *
+ * @phpstan-import-type VerboseResolution from \Depone\Internal\Resolver\AutoloadResolver
  * @phpstan-type DoctorFinding array{severity: 'error'|'warning'|'info', reason: string, file: string, detail: string}
  * @phpstan-type DoctorResult array{errors: list<DoctorFinding>, warnings: list<DoctorFinding>, info: list<DoctorFinding>}
  *
@@ -37,24 +36,17 @@ final class AutoloadDoctor
      */
     public function run(): array
     {
-        $collector = new AutoloadCandidateCollector($this->repoRoot);
-        $collected = $collector->collect();
-        $candidateFiles = $collected['candidates'];
-        $eagerFiles = $collected['files'];
-
-        $resolver = new AutoloadResolver($this->repoRoot);
-        $classExtractor = new DeclaredClassExtractor();
+        $roundTrip = new AutoloadRoundTrip($this->repoRoot);
+        $result = $roundTrip->collect();
+        $eagerFiles = $result['eager'];
 
         $findings = [];
 
-        foreach (array_keys($candidateFiles) as $filePath) {
-            $normalizedFile = PathHelper::normalize($filePath);
+        foreach ($result['candidates'] as $candidate) {
+            $normalizedFile = $candidate['file'];
             $relativeFile = PathHelper::toRelative($normalizedFile, $this->repoRoot);
 
-            $content = file_get_contents($filePath);
-            $classNames = is_string($content) ? $classExtractor->extract($content) : [];
-
-            if ($classNames === []) {
+            if ($candidate['classes'] === []) {
                 if (!isset($eagerFiles[$normalizedFile])) {
                     $findings[] = [
                         'severity' => 'info',
@@ -66,8 +58,8 @@ final class AutoloadDoctor
                 continue;
             }
 
-            foreach ($classNames as $className) {
-                $finding = $this->classifyClass($className, $normalizedFile, $relativeFile, $resolver);
+            foreach ($candidate['classes'] as $class) {
+                $finding = $this->classifyClass($class['name'], $class['verbose'], $normalizedFile, $relativeFile);
                 if ($finding !== null) {
                     $findings[] = $finding;
                 }
@@ -78,18 +70,18 @@ final class AutoloadDoctor
     }
 
     /**
-     * Classifies a single declared class against the resolver, returning a
+     * Classifies a single declared class's resolution facts, returning a
      * finding when the class is unreachable, or null when it round-trips.
      *
+     * @param VerboseResolution $verbose
      * @return DoctorFinding|null
      */
     private function classifyClass(
         string $className,
+        array $verbose,
         string $normalizedFile,
-        string $relativeFile,
-        AutoloadResolver $resolver
+        string $relativeFile
     ): ?array {
-        $verbose = $resolver->resolveVerbose($className);
         $resolved = $verbose['resolved'] !== null ? PathHelper::normalize($verbose['resolved']) : null;
 
         if ($resolved === $normalizedFile) {
