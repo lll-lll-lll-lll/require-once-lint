@@ -76,7 +76,13 @@ final class FindRedundantCommand extends Command
             // the exit code: legacy dynamic includes are often legitimate, and
             // failing on them would make the first run red on almost every
             // legacy project.
-            $hasFindings = $result['redundant'] !== [] || $result['fixable'] !== [] || $result['conflicting'] !== [];
+            $hasFindings = false;
+            foreach (Analyzer::ACTIONABLE_CATEGORIES as $category) {
+                if ($result[$category] !== []) {
+                    $hasFindings = true;
+                    break;
+                }
+            }
 
             return $hasFindings ? self::EXIT_FINDINGS : self::EXIT_OK;
         } catch (AnalyzerException $e) {

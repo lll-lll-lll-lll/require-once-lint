@@ -280,6 +280,21 @@ final class AnalyzerTest extends TestCase
         self::assertNotContains('src/WithSideEffect.php', $allTargets);
     }
 
+    public function testActionableCategoriesConstantMatchesResultKeys(): void
+    {
+        $projectRoot = $this->getFixturePath('SampleProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        // The exit-code gate and the summary iterate ACTIONABLE_CATEGORIES, so
+        // a category added to run() but not to the constant would be invisible
+        // to both. Asserting the full key list makes that drift fail loudly.
+        self::assertSame(
+            [...Analyzer::ACTIONABLE_CATEGORIES, 'unresolved', 'edges'],
+            array_keys($result)
+        );
+    }
+
     private function getFixturePath(string $name): string
     {
         $path = realpath(__DIR__ . '/Fixture/' . $name);

@@ -19,6 +19,9 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
   never affect the exit code. To keep a CI step green on findings, use
   `vendor/bin/depone || [ $? -ne 2 ]` (ignores findings but still fails when
   the analysis could not run); a plain `|| true` also masks execution errors.
+- Internal: the actionable finding categories (`redundant`, `fixable`,
+  `conflicting`) are now defined once and shared by the exit-code gate and the
+  summary output. No behavior change.
 
 ## [0.2.1] - 2026-07-05
 

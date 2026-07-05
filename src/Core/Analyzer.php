@@ -42,6 +42,16 @@ use SplFileInfo;
  */
 final class Analyzer
 {
+    /**
+     * The result categories that are actionable findings: any entry in one of
+     * them means the codebase has work to do. The CLI exit-code gate and the
+     * summary sections iterate this list — a category added to {@see run()}
+     * but not listed here would be invisible to both, under-reporting while
+     * CI stays green. `unresolved` and `edges` are informational only and
+     * deliberately excluded.
+     */
+    public const ACTIONABLE_CATEGORIES = ['redundant', 'fixable', 'conflicting'];
+
     private string $repoRoot;
     private IncludeExprParser $includeExprParser;
 
