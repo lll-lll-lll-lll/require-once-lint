@@ -18,12 +18,25 @@ use Depone\Internal\Tokenizer\TokenHelper;
 use SplFileInfo;
 
 /**
- * Analyzes PHP files to detect redundant require_once statements.
+ * Analyzes PHP files to detect redundant require_once statements and classify
+ * every require_once by its relationship to Composer autoload.
+ *
+ * A require_once is `redundant` (deletable outright) only when deleting it
+ * provably changes nothing: the target is an `autoload.files` entry (loaded
+ * eagerly before any code runs), or *every* class the target declares
+ * autoloads back to the target itself. Otherwise the declared classes decide:
+ * a class autoload resolves to a *different* file makes the require `conflicting`
+ * (it loads a shadowed copy — a hazard, not a simple delete); a class whose PSR
+ * rule matches but whose derived path is missing makes the require `fixable`
+ * (fix the autoload config, then the require can be dropped). Requires that are
+ * legitimately not autoloadable (no matching rule, or the target declares no
+ * types) are left unreported.
  *
  * @phpstan-type RedundantEntry array{file: string, line: int, target: string}
+ * @phpstan-type ClassifiedEntry array{file: string, line: int, target: string, detail: string}
  * @phpstan-type UnresolvedEntry array{file: string, line: int, type: string, reason: string, expr: string}
  * @phpstan-type Edge array{from: string, line: int, type: string, to: string}
- * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
+ * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, fixable: list<ClassifiedEntry>, conflicting: list<ClassifiedEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
  *
  * @internal
  */
@@ -31,6 +44,15 @@ final class Analyzer
 {
     private string $repoRoot;
     private IncludeExprParser $includeExprParser;
+
+    /**
+     * Per-target memo of require_once classifications: legacy code commonly
+     * requires the same file from many places, and re-tokenizing the target
+     * for every edge would be wasted work.
+     *
+     * @var array<string, array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null>
+     */
+    private array $requireClassifications = [];
 
     public function __construct(string $repoRoot)
     {
@@ -46,10 +68,15 @@ final class Analyzer
      */
     public function run(): array
     {
-        $autoloadedFiles = $this->collectAutoloadedFiles();
+        $resolver = new AutoloadResolver($this->repoRoot);
+        $classExtractor = new DeclaredClassExtractor();
+
+        $eagerFiles = $this->collectEagerFiles();
         $phpFiles = $this->collectPhpFiles();
 
         $redundant = [];
+        $fixable = [];
+        $conflicting = [];
         $edges = [];
         $unresolved = [];
 
@@ -60,18 +87,25 @@ final class Analyzer
                 throw new AnalyzerException("Failed to read file: {$file}");
             }
 
-            $fileResult = $this->analyzeFile($content, $file, $relativeFile, $autoloadedFiles);
+            $fileResult = $this->analyzeFile($content, $file, $relativeFile, $eagerFiles, $resolver, $classExtractor);
             $redundant = array_merge($redundant, $fileResult['redundant']);
+            $fixable = array_merge($fixable, $fileResult['fixable']);
+            $conflicting = array_merge($conflicting, $fileResult['conflicting']);
             $edges = array_merge($edges, $fileResult['edges']);
             $unresolved = array_merge($unresolved, $fileResult['unresolved']);
         }
 
-        usort($redundant, static function (array $a, array $b): int {
+        $sortByLocation = static function (array $a, array $b): int {
             return [$a['file'], $a['line'], $a['target']] <=> [$b['file'], $b['line'], $b['target']];
-        });
+        };
+        usort($redundant, $sortByLocation);
+        usort($fixable, $sortByLocation);
+        usort($conflicting, $sortByLocation);
 
         return [
             'redundant' => $redundant,
+            'fixable' => $fixable,
+            'conflicting' => $conflicting,
             'unresolved' => $unresolved,
             'edges' => $edges,
         ];
@@ -80,16 +114,20 @@ final class Analyzer
     /**
      * Analyzes a single file.
      *
-     * @param array<string, true> $autoloadedFiles
+     * @param array<string, true> $eagerFiles `autoload.files` entries, loaded eagerly by Composer
      * @return AnalysisResult
      */
     private function analyzeFile(
         string $content,
         string $absolutePath,
         string $relativePath,
-        array $autoloadedFiles
+        array $eagerFiles,
+        AutoloadResolver $resolver,
+        DeclaredClassExtractor $classExtractor
     ): array {
         $redundant = [];
+        $fixable = [];
+        $conflicting = [];
         $edges = [];
         $unresolved = [];
         $consts = [];
@@ -141,30 +179,163 @@ final class Analyzer
                 'to' => $targetRelative,
             ];
 
-            if ($requireType === 'require_once' && isset($autoloadedFiles[$targetAbs])) {
-                $redundant[] = [
-                    'file' => $relativePath,
-                    'line' => $line,
-                    'target' => $targetRelative,
-                ];
+            if ($requireType !== 'require_once') {
+                continue;
+            }
+
+            // Eager `autoload.files` entries load on Composer init, before
+            // any code runs, so this require is a no-op no matter what the
+            // target declares.
+            $classification = isset($eagerFiles[$targetAbs])
+                ? ['category' => 'redundant', 'detail' => null]
+                : $this->classifyRequireTarget($targetAbs, $resolver, $classExtractor);
+
+            if ($classification === null) {
+                // "needed": the target is legitimately not autoloadable.
+                continue;
+            }
+
+            $entry = [
+                'file' => $relativePath,
+                'line' => $line,
+                'target' => $targetRelative,
+            ];
+
+            if ($classification['category'] === 'redundant') {
+                $redundant[] = $entry;
+                continue;
+            }
+
+            $entry['detail'] = $classification['detail'];
+            if ($classification['category'] === 'conflicting') {
+                $conflicting[] = $entry;
+            } else {
+                $fixable[] = $entry;
             }
         }
 
         return [
             'redundant' => $redundant,
+            'fixable' => $fixable,
+            'conflicting' => $conflicting,
             'edges' => $edges,
             'unresolved' => $unresolved,
         ];
     }
 
     /**
-     * Collects PHP files registered in the autoload/autoload-dev sections of composer.json.
-     * Covers classmap, files, psr-4, and psr-0 entries.
+     * Classifies a require_once by the autoload reachability of its target.
+     *
+     * - `redundant`: *every* declared class autoloads back to the target, so
+     *   deleting the require cannot change where any declaration loads from.
+     *   One round-tripping class is not enough: a sibling class that resolves
+     *   elsewhere (or nowhere) makes the require load-bearing.
+     * - `conflicting`: some declared class is autoloaded from a *different*
+     *   file. Deleting the require would silently swap which definition loads,
+     *   so this hazard dominates every other category.
+     * - `fixable`: no conflicts, but some class matches a PSR rule whose
+     *   derived path does not exist. Fix the autoload config, then the require
+     *   can be dropped.
+     * - null ("needed"): the target declares no types, or a class no autoload
+     *   rule covers. The require is legitimate and stays unreported.
+     *
+     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
+     */
+    private function classifyRequireTarget(
+        string $targetAbs,
+        AutoloadResolver $resolver,
+        DeclaredClassExtractor $classExtractor
+    ): ?array {
+        $normalizedTarget = PathHelper::normalize($targetAbs);
+        if (array_key_exists($normalizedTarget, $this->requireClassifications)) {
+            return $this->requireClassifications[$normalizedTarget];
+        }
+
+        return $this->requireClassifications[$normalizedTarget]
+            = $this->computeRequireClassification($normalizedTarget, $resolver, $classExtractor);
+    }
+
+    /**
+     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
+     */
+    private function computeRequireClassification(
+        string $normalizedTarget,
+        AutoloadResolver $resolver,
+        DeclaredClassExtractor $classExtractor
+    ): ?array {
+        // Require targets are arbitrary paths, including ones that point nowhere.
+        if (!is_file($normalizedTarget)) {
+            return null;
+        }
+        $content = file_get_contents($normalizedTarget);
+        if (!is_string($content)) {
+            return null;
+        }
+
+        $classNames = $classExtractor->extract($content);
+        if ($classNames === []) {
+            return null;
+        }
+
+        $allRoundTrip = true;
+        $fixable = null;
+
+        foreach ($classNames as $className) {
+            $resolution = $resolver->resolveVerbose($className);
+            $resolved = $resolution['resolved'];
+
+            if ($resolved !== null && PathHelper::normalize($resolved) !== $normalizedTarget) {
+                // A shadowed copy is a hazard however the file is shaped, so
+                // conflicting is reported even for files with side effects.
+                $winner = PathHelper::toRelative(PathHelper::normalize($resolved), $this->repoRoot);
+
+                return [
+                    'category' => 'conflicting',
+                    'detail' => "{$className} is autoloaded from {$winner} — this require loads a shadowed copy",
+                ];
+            }
+
+            if ($resolved !== null) {
+                // Round-trips to the target.
+                continue;
+            }
+
+            $allRoundTrip = false;
+
+            if ($resolution['expectedPath'] !== null && $fixable === null) {
+                $expected = PathHelper::toRelative(PathHelper::normalize($resolution['expectedPath']), $this->repoRoot);
+                $fixable = [
+                    'category' => 'fixable',
+                    'detail' => "{$className} would load from {$expected} — fix autoload, then remove this require",
+                ];
+            }
+        }
+
+        // Redundant/fixable both promise the require can eventually go, which
+        // only holds if autoload reproduces everything the target provides.
+        // Autoload loads class-like declarations lazily and nothing else, so a
+        // target that also defines functions/constants or runs top-level side
+        // effects keeps the require load-bearing: leave it unreported.
+        if (!$classExtractor->declaresOnlyTypes($content)) {
+            return null;
+        }
+
+        if ($fixable !== null) {
+            return $fixable;
+        }
+
+        return $allRoundTrip ? ['category' => 'redundant', 'detail' => null] : null;
+    }
+
+    /**
+     * Collects the `files` entries of the autoload/autoload-dev sections.
+     * Composer loads these eagerly on initialization, so a require_once whose
+     * target is one of them is redundant regardless of what the file declares.
      *
      * @return array<string, true> Associative array keyed by absolute file path
      * @throws AnalyzerException
      */
-    private function collectAutoloadedFiles(): array
+    private function collectEagerFiles(): array
     {
         $composerPath = $this->repoRoot . '/composer.json';
         if (!is_file($composerPath)) {
@@ -180,7 +351,6 @@ final class Analyzer
         }
 
         $files = [];
-        $candidateFiles = [];
 
         foreach (['autoload', 'autoload-dev'] as $sectionName) {
             $autoload = $composer[$sectionName] ?? [];
@@ -188,155 +358,23 @@ final class Analyzer
                 continue;
             }
 
-            // files: individual files
-            $this->collectFromFiles($autoload['files'] ?? [], $files);
+            $entries = $autoload['files'] ?? [];
+            if (!is_array($entries)) {
+                continue;
+            }
 
-            // classmap: directories or individual files
-            $this->collectFromClassmap($autoload['classmap'] ?? [], $candidateFiles);
-
-            // psr-4: namespace => directory mapping
-            $this->collectFromPsr4($autoload['psr-4'] ?? [], $candidateFiles);
-
-            // psr-0: namespace => directory mapping (legacy)
-            $this->collectFromPsr4($autoload['psr-0'] ?? [], $candidateFiles);
-        }
-
-        $resolver = new AutoloadResolver($this->repoRoot);
-        $classExtractor = new DeclaredClassExtractor();
-        foreach (array_keys($candidateFiles) as $filePath) {
-            if ($this->isRedundantlyRequirable($filePath, $resolver, $classExtractor)) {
-                $files[PathHelper::normalize($filePath)] = true;
+            foreach ($entries as $entry) {
+                if (!is_string($entry)) {
+                    continue;
+                }
+                $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
+                if (is_file($absolute)) {
+                    $files[$absolute] = true;
+                }
             }
         }
 
         return $files;
-    }
-
-    /**
-     * Reports whether requiring this file is provably redundant with autoload:
-     * deleting such a require cannot change what loads or when.
-     *
-     * That holds only when the file is a pure declaration file (no functions,
-     * constants, or top-level side effects — autoload would never reproduce
-     * those) AND *every* class it declares autoloads back to this same file. A
-     * single class that autoload resolves elsewhere, or that is not reachable at
-     * all, means the require is load-bearing and must not be called redundant.
-     */
-    private function isRedundantlyRequirable(
-        string $filePath,
-        AutoloadResolver $resolver,
-        DeclaredClassExtractor $classExtractor
-    ): bool {
-        $content = file_get_contents($filePath);
-        if (!is_string($content)) {
-            return false;
-        }
-
-        $classNames = $classExtractor->extract($content);
-        if ($classNames === [] || !$classExtractor->declaresOnlyTypes($content)) {
-            return false;
-        }
-
-        $normalizedFile = PathHelper::normalize($filePath);
-        foreach ($classNames as $className) {
-            $resolved = $resolver->resolve($className);
-            if ($resolved === null || PathHelper::normalize($resolved) !== $normalizedFile) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Collects files from classmap entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromClassmap(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
-            $this->collectPhpFilesFromPath($absolute, $files);
-        }
-    }
-
-    /**
-     * Collects files from `files` entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromFiles(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if (!is_string($entry)) {
-                continue;
-            }
-            $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
-            if (is_file($absolute)) {
-                $files[$absolute] = true;
-            }
-        }
-    }
-
-    /**
-     * Collects files from psr-4/psr-0 entries.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectFromPsr4(mixed $entries, array &$files): void
-    {
-        if (!is_array($entries)) {
-            return;
-        }
-
-        foreach ($entries as $paths) {
-            // Paths may be declared as a string or an array.
-            $pathList = is_array($paths) ? $paths : [$paths];
-            foreach ($pathList as $path) {
-                if (!is_string($path)) {
-                    continue;
-                }
-                $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($path, '/'));
-                $this->collectPhpFilesFromPath($absolute, $files);
-            }
-        }
-    }
-
-    /**
-     * Collects PHP files from the given path, whether it is a file or directory.
-     *
-     * @param array<string, true> $files Destination array, passed by reference
-     */
-    private function collectPhpFilesFromPath(string $absolute, array &$files): void
-    {
-        if (is_dir($absolute)) {
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($absolute, FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iterator as $info) {
-                /** @var SplFileInfo $info */
-                if ($info->isFile() && strtolower($info->getExtension()) === 'php') {
-                    $files[PathHelper::normalize((string)$info->getPathname())] = true;
-                }
-            }
-            return;
-        }
-
-        if (is_file($absolute)) {
-            $files[$absolute] = true;
-        }
     }
 
     /**

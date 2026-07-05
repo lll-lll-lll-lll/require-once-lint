@@ -27,6 +27,16 @@ final class OutputFormatter
             $output .= "{$row['file']}:{$row['line']} => {$row['target']}" . PHP_EOL;
         }
         $output .= PHP_EOL;
+        $output .= "fixable_require_once=" . count($result['fixable']) . PHP_EOL;
+        foreach ($result['fixable'] as $row) {
+            $output .= "  {$row['file']}:{$row['line']} => {$row['target']}  ({$row['detail']})" . PHP_EOL;
+        }
+        $output .= PHP_EOL;
+        $output .= "conflicting_require_once=" . count($result['conflicting']) . PHP_EOL;
+        foreach ($result['conflicting'] as $row) {
+            $output .= "  {$row['file']}:{$row['line']} => {$row['target']}  ({$row['detail']})" . PHP_EOL;
+        }
+        $output .= PHP_EOL;
         $output .= "unresolved_include_require=" . count($result['unresolved']) . PHP_EOL;
         foreach ($result['unresolved'] as $row) {
             $output .= "  {$row['file']}:{$row['line']} [{$row['reason']}] {$row['expr']}" . PHP_EOL;

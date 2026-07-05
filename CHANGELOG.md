@@ -9,6 +9,25 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Added
+
+- Classify `require_once` statements whose targets are *not* autoload-reachable,
+  in the default text output. Beyond the existing `redundant_require_once`
+  section, two new sections are reported:
+  - `fixable_require_once`: the target declares a class whose PSR-4/PSR-0 rule
+    matches but whose derived path does not exist. The require is a crutch —
+    fix the autoload config and it can be removed.
+  - `conflicting_require_once`: the target declares a class that autoload
+    resolves to a *different* file (a shadowed copy). Deleting the require would
+    change which definition loads, so it is flagged as a hazard rather than a
+    simple removal.
+  Requires that are legitimately not autoloadable (no matching rule, the target
+  declares no types, or the target also carries functions/constants/side
+  effects) remain unreported. This join of `require_once` statements against
+  autoload reachability is not something `composer dump-autoload --strict-psr`/
+  `--strict-ambiguous` can report, since Composer never parses source-level
+  require statements.
+
 ### Fixed
 
 - `redundant_require_once` no longer flags a require that is not actually safe to

@@ -1,0 +1,12 @@
+{
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        },
+        "classmap": ["classmap/"],
+        "files": ["src/eager.php"]
+    },
+    "autoload-dev": {
+        "files": ["dev/dev-eager.php"]
+    }
+}

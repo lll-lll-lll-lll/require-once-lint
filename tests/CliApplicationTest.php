@@ -20,12 +20,17 @@ use Depone\Internal\Cli\CliApplication;
 final class CliApplicationTest extends TestCase
 {
     private static string $fixtureRoot;
+    private static string $classificationFixtureRoot;
 
     public static function setUpBeforeClass(): void
     {
         $path = realpath(__DIR__ . '/Fixture/CliApplicationProject');
         self::assertNotFalse($path, 'CliApplicationProject fixture not found');
         self::$fixtureRoot = $path;
+
+        $classificationPath = realpath(__DIR__ . '/Fixture/RequireClassificationProject');
+        self::assertNotFalse($classificationPath, 'RequireClassificationProject fixture not found');
+        self::$classificationFixtureRoot = $classificationPath;
     }
 
     // -------------------------------------------------------------------------
@@ -39,12 +44,22 @@ final class CliApplicationTest extends TestCase
      */
     private function runApp(string ...$args): array
     {
+        return $this->runAppInRoot(self::$fixtureRoot, ...$args);
+    }
+
+    /**
+     * Runs CliApplication against an explicit repository root.
+     *
+     * @return array{exitCode: int, stdout: string, stderr: string}
+     */
+    private function runAppInRoot(string $repoRoot, string ...$args): array
+    {
         $stdout = fopen('php://memory', 'r+');
         $stderr = fopen('php://memory', 'r+');
         self::assertNotFalse($stdout);
         self::assertNotFalse($stderr);
 
-        $exitCode = (new CliApplication($stdout, $stderr, self::$fixtureRoot))(['bin', ...$args]);
+        $exitCode = (new CliApplication($stdout, $stderr, $repoRoot))(['bin', ...$args]);
 
         rewind($stdout);
         rewind($stderr);
@@ -94,6 +109,10 @@ final class CliApplicationTest extends TestCase
         $r = $this->runApp();
         self::assertStringContainsString('redundant_require_once=', $r['stdout']);
         self::assertStringContainsString('unresolved_include_require=', $r['stdout']);
+        // The classification sections are part of the output contract and must
+        // be printed with a zero count even when nothing is found.
+        self::assertStringContainsString('fixable_require_once=0', $r['stdout']);
+        self::assertStringContainsString('conflicting_require_once=0', $r['stdout']);
     }
 
     public function testRedundantRequireStatementDetectedInTextOutput(): void
@@ -111,6 +130,37 @@ final class CliApplicationTest extends TestCase
         // cannot be statically resolved and is reported with reason "complex".
         self::assertStringContainsString('unresolved_include_require=1', $r['stdout']);
         self::assertStringContainsString('index-with-const.php:8 [complex] SITE_ROOT', $r['stdout']);
+    }
+
+    // -------------------------------------------------------------------------
+    // require_once classification (fixable / conflicting)
+    // -------------------------------------------------------------------------
+
+    public function testTextOutputClassifiesFixableAndConflictingRequires(): void
+    {
+        $r = $this->runAppInRoot(self::$classificationFixtureRoot);
+        self::assertSame(0, $r['exitCode']);
+        self::assertSame('', $r['stderr']);
+
+        self::assertStringContainsString('redundant_require_once=1', $r['stdout']);
+        self::assertStringContainsString('public/index.php:5 => src/Reachable.php', $r['stdout']);
+
+        self::assertStringContainsString('fixable_require_once=1', $r['stdout']);
+        self::assertStringContainsString(
+            'src/WrongPath.php  (App\Sub\Missing would load from src/Sub/Missing.php'
+                . ' — fix autoload, then remove this require)',
+            $r['stdout']
+        );
+
+        self::assertStringContainsString('conflicting_require_once=1', $r['stdout']);
+        self::assertStringContainsString(
+            'src/Dup.php  (App\Dup is autoloaded from classmap/Dup.php'
+                . ' — this require loads a shadowed copy)',
+            $r['stdout']
+        );
+
+        // The "needed" require to src/helper.php (no declared type) is unreported.
+        self::assertStringNotContainsString('src/helper.php', $r['stdout']);
     }
 
     // -------------------------------------------------------------------------
