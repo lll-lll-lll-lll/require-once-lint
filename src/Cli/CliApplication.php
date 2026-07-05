@@ -45,7 +45,7 @@ final class CliApplication
      */
     public function __invoke(array $argv): int
     {
-        $app = new Application('depone', InstalledVersions::getPrettyVersion('lll-lll-lll-lll/depone') ?? 'unknown');
+        $app = new Application('depone', InstalledVersions::getPrettyVersion('depone/depone') ?? 'unknown');
         // Registered via a command loader rather than add()/addCommand():
         // add() was removed in symfony/console 8, addCommand() only exists
         // since 7.4, and this loader API is identical across 6.4-8.

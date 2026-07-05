@@ -3,8 +3,8 @@
 ## Development setup
 
 ```sh
-git clone git@github.com:lll-lll-lll-lll/require-once-lint.git
-cd require-once-lint
+git clone git@github.com:lll-lll-lll-lll/depone.git
+cd depone
 composer install
 composer check
 ```

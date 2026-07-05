@@ -1,9 +1,9 @@
 # depone
 
-[![CI](https://github.com/lll-lll-lll-lll/require-once-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/lll-lll-lll-lll/require-once-lint/actions/workflows/ci.yml)
-[![Latest Version](https://img.shields.io/packagist/v/lll-lll-lll-lll/depone)](https://packagist.org/packages/lll-lll-lll-lll/depone)
-[![PHP Version](https://img.shields.io/packagist/dependency-v/lll-lll-lll-lll/depone/php)](https://packagist.org/packages/lll-lll-lll-lll/depone)
-[![License](https://img.shields.io/packagist/l/lll-lll-lll-lll/depone?cacheSeconds=3600)](LICENSE)
+[![CI](https://github.com/lll-lll-lll-lll/depone/actions/workflows/ci.yml/badge.svg)](https://github.com/lll-lll-lll-lll/depone/actions/workflows/ci.yml)
+[![Latest Version](https://img.shields.io/packagist/v/depone/depone)](https://packagist.org/packages/depone/depone)
+[![PHP Version](https://img.shields.io/packagist/dependency-v/depone/depone/php)](https://packagist.org/packages/depone/depone)
+[![License](https://img.shields.io/packagist/l/depone/depone?cacheSeconds=3600)](LICENSE)
 
 > Delete legacy `require_once` with proof, not guesswork.
 
@@ -30,7 +30,7 @@ configuration, and without ever rewriting your code:
 Requires PHP 8.1+ and Composer.
 
 ```sh
-composer require --dev lll-lll-lll-lll/depone
+composer require --dev depone/depone
 ```
 
 ## Quick start
@@ -179,8 +179,8 @@ implementation details and may change without backward compatibility guarantees.
 ## Development
 
 ```sh
-git clone git@github.com:lll-lll-lll-lll/require-once-lint.git
-cd require-once-lint
+git clone git@github.com:lll-lll-lll-lll/depone.git
+cd depone
 composer install
 composer check   # php-cs-fixer + phpstan + phpunit
 ```
