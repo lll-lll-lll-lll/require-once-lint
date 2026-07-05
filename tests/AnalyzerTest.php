@@ -98,6 +98,43 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    public function testRedundantRequiresOnlyProvablySafeTargets(): void
+    {
+        // A require is redundant only when deleting it changes nothing: the
+        // target is an autoload.files entry, or every class it declares
+        // round-trips AND it declares no functions/constants/side effects.
+        $projectRoot = $this->getFixturePath('RedundantSafetyProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertSame(
+            [
+                // Pure declaration file whose class round-trips.
+                [
+                    'file' => 'public/index.php',
+                    'line' => 5,
+                    'target' => 'src/Pure.php',
+                ],
+                // autoload.files entry, loaded eagerly.
+                [
+                    'file' => 'public/index.php',
+                    'line' => 8,
+                    'target' => 'src/eager.php',
+                ],
+            ],
+            $result['redundant']
+        );
+
+        // src/WithShadow.php (App\Shadowed autoloads from classmap/Shadowed.php)
+        // and src/WithFunction.php (also declares a function) are load-bearing:
+        // deleting their requires would change behavior, so neither is redundant.
+        $redundantTargets = array_column($result['redundant'], 'target');
+        self::assertNotContains('src/WithShadow.php', $redundantTargets);
+        self::assertNotContains('src/WithFunction.php', $redundantTargets);
+
+        self::assertSame([], $result['unresolved']);
+    }
+
     private function getFixturePath(string $name): string
     {
         $path = realpath(__DIR__ . '/Fixture/' . $name);

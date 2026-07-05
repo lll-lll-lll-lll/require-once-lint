@@ -204,16 +204,48 @@ final class Analyzer
         $resolver = new AutoloadResolver($this->repoRoot);
         $classExtractor = new DeclaredClassExtractor();
         foreach (array_keys($candidateFiles) as $filePath) {
-            foreach ($this->extractDeclaredClassNames($classExtractor, $filePath) as $className) {
-                $resolved = $resolver->resolve($className);
-                if ($resolved !== null && PathHelper::normalize($resolved) === PathHelper::normalize($filePath)) {
-                    $files[PathHelper::normalize($filePath)] = true;
-                    break;
-                }
+            if ($this->isRedundantlyRequirable($filePath, $resolver, $classExtractor)) {
+                $files[PathHelper::normalize($filePath)] = true;
             }
         }
 
         return $files;
+    }
+
+    /**
+     * Reports whether requiring this file is provably redundant with autoload:
+     * deleting such a require cannot change what loads or when.
+     *
+     * That holds only when the file is a pure declaration file (no functions,
+     * constants, or top-level side effects — autoload would never reproduce
+     * those) AND *every* class it declares autoloads back to this same file. A
+     * single class that autoload resolves elsewhere, or that is not reachable at
+     * all, means the require is load-bearing and must not be called redundant.
+     */
+    private function isRedundantlyRequirable(
+        string $filePath,
+        AutoloadResolver $resolver,
+        DeclaredClassExtractor $classExtractor
+    ): bool {
+        $content = file_get_contents($filePath);
+        if (!is_string($content)) {
+            return false;
+        }
+
+        $classNames = $classExtractor->extract($content);
+        if ($classNames === [] || !$classExtractor->declaresOnlyTypes($content)) {
+            return false;
+        }
+
+        $normalizedFile = PathHelper::normalize($filePath);
+        foreach ($classNames as $className) {
+            $resolved = $resolver->resolve($className);
+            if ($resolved === null || PathHelper::normalize($resolved) !== $normalizedFile) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -305,22 +337,6 @@ final class Analyzer
         if (is_file($absolute)) {
             $files[$absolute] = true;
         }
-    }
-
-    /**
-     * Reads the given file and extracts the declared class names (FQCN) it contains.
-     * Returns an empty array when the file cannot be read.
-     *
-     * @return list<string>
-     */
-    private function extractDeclaredClassNames(DeclaredClassExtractor $classExtractor, string $filePath): array
-    {
-        $content = file_get_contents($filePath);
-        if (!is_string($content)) {
-            return [];
-        }
-
-        return $classExtractor->extract($content);
     }
 
     /**

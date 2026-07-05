@@ -9,6 +9,22 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Fixed
+
+- `redundant_require_once` no longer flags a require that is not actually safe to
+  delete. Previously a require was reported redundant as soon as *any* class in
+  the target autoloaded back to it; a require is now reported only when deleting
+  it provably changes nothing:
+  - the target is an `autoload.files` entry (Composer loads those eagerly, so the
+    require is a no-op), or
+  - the target declares only types (no functions, constants, or top-level side
+    effects — autoload reproduces none of those) and *every* declared class
+    autoloads back to that same file.
+
+  A target with a class that autoloads from a different file (a shadowed copy),
+  with an unreachable sibling class, or that also defines a function/constant is
+  therefore no longer called redundant.
+
 ## [0.1.0] - 2026-07-04
 
 ### Added
