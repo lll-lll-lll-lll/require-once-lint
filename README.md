@@ -131,8 +131,38 @@ are never silently skipped — they are listed under
 | `static_access` | the expression contains `::` access |
 | `complex` | anything else the evaluator cannot resolve |
 
-The exit code is `0` on success and `1` on failure (for example, when
-`composer.json` cannot be read).
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The analysis ran and found no redundant, fixable, or conflicting require. |
+| `1` | The analysis ran and reported at least one redundant, fixable, or conflicting require. |
+| `2` | The analysis could not run (unreadable `composer.json`, unknown option, ...). |
+
+`unresolved_include_require` entries are reported but never affect the exit
+code: legacy dynamic includes are often legitimate, and failing on them would
+turn the first run red on almost every legacy project. `--trace` output is
+informational and always exits `0` unless the analysis itself fails.
+
+## Using in CI
+
+Because findings exit non-zero, a plain step fails the build as soon as a
+redundant, fixable, or conflicting require appears:
+
+```yaml
+- run: composer install --no-progress
+- run: vendor/bin/depone
+```
+
+To print the report without failing the build on findings, use:
+
+```sh
+vendor/bin/depone || [ $? -ne 2 ]
+```
+
+This ignores findings (exit `1`) but still fails the step when the analysis
+could not run at all (exit `2`). A plain `|| true` would mask execution errors
+too — the step would stay green even when no analysis happened.
 
 ## How it works
 

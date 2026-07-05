@@ -21,6 +21,13 @@ final class FindRedundantCommand extends Command
 {
     public const NAME = 'depone';
 
+    /** Analysis ran; no redundant, fixable, or conflicting require was found. */
+    public const EXIT_OK = 0;
+    /** Analysis ran; at least one redundant, fixable, or conflicting require was reported. */
+    public const EXIT_FINDINGS = 1;
+    /** The analysis could not run (unreadable composer.json, invalid invocation, ...). */
+    public const EXIT_ERROR = 2;
+
     private const MAX_PATHS = 20;
     private const MAX_DEPTH = 25;
 
@@ -44,7 +51,7 @@ final class FindRedundantCommand extends Command
         $repoRoot = $this->repoRoot ?? getcwd();
         if ($repoRoot === false) {
             $errOutput->writeln('failed to resolve current working directory');
-            return Command::FAILURE;
+            return self::EXIT_ERROR;
         }
 
         $traceOption = $input->getOption('trace');
@@ -56,18 +63,26 @@ final class FindRedundantCommand extends Command
 
             $formatter = new InternalOutputFormatter();
             if ($traceTarget !== null) {
+                // Trace output is informational and never fails the build.
                 $graph = new DependencyGraph($result['edges'], $repoRoot);
                 $trace = $graph->buildReverseTrace($traceTarget, self::MAX_PATHS, self::MAX_DEPTH);
                 $this->writeRaw($output, $formatter->formatReverseTrace($trace));
-            } else {
-                $this->writeRaw($output, $formatter->formatSummary($result));
+                return self::EXIT_OK;
             }
+
+            $this->writeRaw($output, $formatter->formatSummary($result));
+
+            // unresolved entries are reported but deliberately do not affect
+            // the exit code: legacy dynamic includes are often legitimate, and
+            // failing on them would make the first run red on almost every
+            // legacy project.
+            $hasFindings = $result['redundant'] !== [] || $result['fixable'] !== [] || $result['conflicting'] !== [];
+
+            return $hasFindings ? self::EXIT_FINDINGS : self::EXIT_OK;
         } catch (AnalyzerException $e) {
             $errOutput->writeln($e->getMessage());
-            return Command::FAILURE;
+            return self::EXIT_ERROR;
         }
-
-        return Command::SUCCESS;
     }
 
     /**
