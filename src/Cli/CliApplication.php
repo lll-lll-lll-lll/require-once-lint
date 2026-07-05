@@ -62,32 +62,32 @@ final class CliApplication
      * With subcommands registered, `setDefaultCommand(..., false)` is required so
      * they are reachable, but it means Symfony can no longer tell an option's
      * value (e.g. `--trace src/Bar.php`) apart from a command name when the
-     * default command is invoked implicitly. Make routing unambiguous by
-     * prepending the default command name whenever the first token is neither
-     * an already-known command name nor an application-level flag.
+     * default command is invoked implicitly.
+     *
+     * Resolve this by looking at the first non-option token: if it is a known
+     * command name, leave argv untouched so the Application dispatches that
+     * command with any preceding global options (`-q doctor`, `--help doctor`)
+     * still applied. Otherwise prepend the default command name, so a bare
+     * invocation — or a default-command option value such as `--trace <path>`
+     * that is not a command — is handled by the default command.
      *
      * @param list<string> $argv
      * @return list<string>
      */
     private function routeToDefaultCommand(Application $app, array $argv): array
     {
-        $first = $argv[1] ?? null;
-
-        // Application-level help/version flags must reach the Application layer so
-        // it can list the subcommands (including `doctor`) or print the version,
-        // rather than being routed into — and consumed by — the default command.
-        if ($first !== null && in_array($first, ['-h', '--help', '-V', '--version'], true)) {
-            return $argv;
+        foreach (array_slice($argv, 1) as $token) {
+            if ($token === '--') {
+                break;
+            }
+            if ($token !== '' && $token[0] !== '-') {
+                if ($app->has($token)) {
+                    return $argv;
+                }
+                break;
+            }
         }
 
-        // An explicit, known command name (e.g. `doctor`, `list`) is left untouched.
-        if ($first !== null && $first !== '' && $first[0] !== '-' && $app->has($first)) {
-            return $argv;
-        }
-
-        // Everything else — no arguments, or a default-command option such as
-        // `--trace <value>` whose value must not be mistaken for a command name —
-        // is routed explicitly to the default command.
         return [$argv[0], FindRedundantCommand::NAME, ...array_slice($argv, 1)];
     }
 }

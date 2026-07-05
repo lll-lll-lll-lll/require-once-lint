@@ -105,6 +105,17 @@ final class CliApplicationTest extends TestCase
         self::assertStringNotContainsString('Detect redundant require_once', $r['stdout']);
     }
 
+    public function testGlobalOptionBeforeSubcommandStillRunsSubcommand(): void
+    {
+        // A global option ahead of the subcommand name (e.g. `--no-ansi doctor`)
+        // must not cause the default command to be prepended and swallow the
+        // subcommand as a stray argument.
+        $r = $this->runAppInRoot(self::$doctorFixtureRoot, '--no-ansi', 'doctor');
+        self::assertSame(0, $r['exitCode']);
+        self::assertSame('', $r['stderr']);
+        self::assertStringContainsString('autoload_unreachable_errors=', $r['stdout']);
+    }
+
     // -------------------------------------------------------------------------
     // Default text output
     // -------------------------------------------------------------------------
