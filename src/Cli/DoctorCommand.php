@@ -34,7 +34,7 @@ final class DoctorCommand extends Command
                 'min-severity',
                 null,
                 InputOption::VALUE_REQUIRED,
-                'Only report sections at or above this severity (error|warning).'
+                'Lowest severity section to report (error|warning|info). Defaults to error.'
             );
     }
 
@@ -49,12 +49,12 @@ final class DoctorCommand extends Command
         }
 
         $minSeverityOption = $input->getOption('min-severity');
-        $minSeverity = null;
-        if ($minSeverityOption === 'error' || $minSeverityOption === 'warning') {
+        $minSeverity = 'error';
+        if ($minSeverityOption === 'error' || $minSeverityOption === 'warning' || $minSeverityOption === 'info') {
             $minSeverity = $minSeverityOption;
         } elseif ($minSeverityOption !== null) {
             $value = is_string($minSeverityOption) ? $minSeverityOption : get_debug_type($minSeverityOption);
-            $errOutput->writeln("invalid --min-severity value \"{$value}\": expected 'error' or 'warning'");
+            $errOutput->writeln("invalid --min-severity value \"{$value}\": expected 'error', 'warning' or 'info'");
             return Command::FAILURE;
         }
 

@@ -168,9 +168,22 @@ final class CliApplicationTest extends TestCase
     // doctor subcommand
     // -------------------------------------------------------------------------
 
-    public function testDoctorExitsZeroAndPrintsAllThreeSections(): void
+    public function testDoctorDefaultExitsZeroAndPrintsOnlyErrorsSection(): void
     {
+        // With no --min-severity, doctor reports errors alone; warnings and info
+        // are frequently fixture-driven noise and must be opted into.
         $r = $this->runAppInRoot(self::$doctorFixtureRoot, 'doctor');
+        self::assertSame(0, $r['exitCode']);
+        self::assertSame('', $r['stderr']);
+        self::assertStringContainsString('autoload_unreachable_errors=2', $r['stdout']);
+        self::assertStringContainsString('src/Dup.php: App\Dup is shadowed by classmap/Dup.php', $r['stdout']);
+        self::assertStringNotContainsString('autoload_unreachable_warnings=', $r['stdout']);
+        self::assertStringNotContainsString('autoload_unreachable_info=', $r['stdout']);
+    }
+
+    public function testDoctorMinSeverityInfoPrintsAllThreeSections(): void
+    {
+        $r = $this->runAppInRoot(self::$doctorFixtureRoot, 'doctor', '--min-severity=info');
         self::assertSame(0, $r['exitCode']);
         self::assertSame('', $r['stderr']);
         self::assertStringContainsString('autoload_unreachable_errors=2', $r['stdout']);

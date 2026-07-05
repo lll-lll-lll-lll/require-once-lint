@@ -17,8 +17,10 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
   exist (`expected_path_missing`), classes matching no autoload rule
   (`no_matching_rule`), and candidate files that declare no types
   (`no_declarations`). Findings are grouped into `error`/`warning`/`info`
-  sections; the `--min-severity=error|warning` option limits output to the
-  higher-severity sections. Text output only; always exits 0.
+  sections. By default only the `error` section is printed, since warnings and
+  info are frequently fixture-driven noise; widen the output with
+  `--min-severity=warning` (adds warnings) or `--min-severity=info` (adds all
+  three sections). Text output only; always exits 0.
 
 ## [0.1.0] - 2026-07-04
 

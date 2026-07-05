@@ -61,20 +61,23 @@ final class OutputFormatter
     /**
      * Formats doctor diagnosis output.
      *
-     * Three fixed sections (errors, warnings, info) are printed in that order,
-     * each with a `key=count` header followed by indented `file: detail` lines.
+     * Sections (errors, warnings, info) are printed in that order, each with a
+     * `key=count` header followed by indented `file: detail` lines. Only sections
+     * at or above `$minSeverity` are printed; the default reports errors alone,
+     * since warnings and info are frequently fixture-driven noise. Widen with
+     * `--min-severity=warning` (adds warnings) or `--min-severity=info` (adds all).
      *
      * @param DoctorResult $result
-     * @param 'error'|'warning'|null $minSeverity Lowest severity section to include; null includes all sections.
+     * @param 'error'|'warning'|'info' $minSeverity Lowest severity section to include.
      */
-    public function formatDoctor(array $result, ?string $minSeverity = null): string
+    public function formatDoctor(array $result, string $minSeverity = 'error'): string
     {
         $sections = [];
         $sections[] = $this->formatDoctorSection('autoload_unreachable_errors', $result['errors']);
-        if ($minSeverity !== 'error') {
+        if ($minSeverity === 'warning' || $minSeverity === 'info') {
             $sections[] = $this->formatDoctorSection('autoload_unreachable_warnings', $result['warnings']);
         }
-        if ($minSeverity === null) {
+        if ($minSeverity === 'info') {
             $sections[] = $this->formatDoctorSection('autoload_unreachable_info', $result['info']);
         }
 
