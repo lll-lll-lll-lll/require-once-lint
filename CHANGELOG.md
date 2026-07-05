@@ -9,6 +9,12 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Changed
+
+- Lowered the minimum supported PHP version from 8.4 to 8.1, and widened the
+  accepted symfony/console range to `^6.4 || ^7.0 || ^8.0`, so depone can be
+  installed as a dev dependency in the legacy projects it is built for.
+
 ## [0.2.0] - 2026-07-05
 
 ### Added
