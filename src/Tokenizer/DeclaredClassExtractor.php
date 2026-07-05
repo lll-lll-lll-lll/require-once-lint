@@ -46,7 +46,7 @@ final class DeclaredClassExtractor
                 continue;
             }
 
-            if ($id === T_CLASS && $this->isAnonymousClassToken($tokens, $i)) {
+            if ($id === T_CLASS && $this->isNonDeclarationClassKeyword($tokens, $i)) {
                 continue;
             }
 
@@ -63,9 +63,17 @@ final class DeclaredClassExtractor
     }
 
     /**
+     * Reports whether a `class` keyword is something other than a type
+     * declaration, based on the preceding significant token:
+     *   - `new class { ... }`  → an anonymous class (preceded by `new`)
+     *   - `Foo::class`         → the class-name constant (preceded by `::`)
+     * In both cases the following identifier is not a declared class name and
+     * must not be collected (otherwise `Foo::class` would fabricate a phantom
+     * declaration from whatever token happens to follow).
+     *
      * @param list<Token> $tokens
      */
-    private function isAnonymousClassToken(array $tokens, int $classIndex): bool
+    private function isNonDeclarationClassKeyword(array $tokens, int $classIndex): bool
     {
         for ($i = $classIndex - 1; $i >= 0; $i--) {
             $id = $tokens[$i]->id;
@@ -73,7 +81,7 @@ final class DeclaredClassExtractor
                 continue;
             }
 
-            return $id === T_NEW;
+            return $id === T_NEW || $id === T_DOUBLE_COLON;
         }
 
         return false;

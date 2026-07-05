@@ -15,6 +15,7 @@ use Depone\Internal\Tokenizer\DeclaredClassExtractor;
  *   - namespaced and global (no-namespace) declarations
  *   - fully qualified name assembly
  *   - anonymous class exclusion
+ *   - class-name constant (`Foo::class`) exclusion
  *   - duplicate name removal
  */
 final class DeclaredClassExtractorTest extends TestCase
@@ -125,6 +126,32 @@ final class DeclaredClassExtractorTest extends TestCase
             PHP;
 
         self::assertSame(['App\Foo'], $this->extractor->extract($code));
+    }
+
+    public function testExcludesClassNameConstant(): void
+    {
+        // `Foo::class` is a class-name constant, not a declaration. The `class`
+        // keyword must not be treated as one and grab the following identifier
+        // (here the method name `other`) as a phantom class.
+        $code = <<<'PHP'
+            <?php
+            namespace App;
+
+            class UsesClassConst
+            {
+                public function run(): string
+                {
+                    return UsesClassConst::class;
+                }
+
+                public function other(): int
+                {
+                    return 1;
+                }
+            }
+            PHP;
+
+        self::assertSame(['App\UsesClassConst'], $this->extractor->extract($code));
     }
 
     public function testRemovesDuplicateNames(): void

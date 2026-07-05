@@ -17,6 +17,7 @@ use Depone\Internal\Exception\AnalyzerException;
  *
  * Fixture: tests/Fixture/DoctorProject/
  *   - src/Reachable.php  : round-trips through App\ => src/, no finding
+ *   - src/UsesConst.php  : reachable class that uses `::class`, no phantom finding
  *   - src/WrongPath.php  : App\Sub\Missing declared outside src/Sub/, expected_path_missing
  *   - src/Dup.php        : shadowed by classmap/Dup.php, resolved_elsewhere
  *   - classmap/Dup.php   : the winning classmap entry, no finding
@@ -42,6 +43,19 @@ final class AutoloadDoctorTest extends TestCase
         foreach (['errors', 'warnings', 'info'] as $bucket) {
             foreach ($result[$bucket] as $finding) {
                 self::assertNotSame('src/Reachable.php', $finding['file']);
+            }
+        }
+    }
+
+    public function testClassNameConstantDoesNotFabricatePhantomFinding(): void
+    {
+        // src/UsesConst.php is healthy but uses `UsesConst::class`; no finding of
+        // any severity may reference it (a phantom would surface as an error).
+        $result = (new AutoloadDoctor(self::$root))->run();
+
+        foreach (['errors', 'warnings', 'info'] as $bucket) {
+            foreach ($result[$bucket] as $finding) {
+                self::assertNotSame('src/UsesConst.php', $finding['file']);
             }
         }
     }
