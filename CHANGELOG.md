@@ -9,6 +9,8 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-05
+
 ### Added
 
 - Classify `require_once` statements whose targets are *not* autoload-reachable,
@@ -27,6 +29,10 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
   autoload reachability is not something `composer dump-autoload --strict-psr`/
   `--strict-ambiguous` can report, since Composer never parses source-level
   require statements.
+
+### Changed
+
+- Class detection now uses nikic/php-parser, which becomes a runtime dependency.
 
 ### Fixed
 
@@ -56,5 +62,6 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 - `--trace` option: show reverse caller traces (which files require the given
   file, and from which entrypoints).
 
-[Unreleased]: https://github.com/lll-lll-lll-lll/require-once-lint/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lll-lll-lll-lll/require-once-lint/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lll-lll-lll-lll/require-once-lint/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lll-lll-lll-lll/require-once-lint/releases/tag/v0.1.0
