@@ -429,6 +429,33 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    public function testGuardedPolyfillDeclarationIsNeededNotConflicting(): void
+    {
+        // compat/polyfill.php declares App\Widget only behind a class_exists
+        // guard; the real App\Widget lives at src/Widget.php. The guard makes
+        // the require idempotent, so it must not be reported as loading a
+        // shadowed copy (conflicting). It is needed: the file declares its type
+        // only conditionally.
+        $projectRoot = $this->getFixturePath('PolyfillProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertSame([], $result['conflicting']);
+        self::assertSame([], $result['redundant']);
+        self::assertSame(
+            [
+                [
+                    'file' => 'boot.php',
+                    'line' => 5,
+                    'target' => 'compat/polyfill.php',
+                    'reason' => 'target declares types only conditionally',
+                ],
+            ],
+            $result['needed']
+        );
+        self::assertSame([], $result['unresolved']);
+    }
+
     public function testActionableCategoriesConstantMatchesResultKeys(): void
     {
         $projectRoot = $this->getFixturePath('SampleProject');

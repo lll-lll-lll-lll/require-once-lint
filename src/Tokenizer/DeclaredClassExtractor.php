@@ -22,6 +22,15 @@ use PhpParser\ParserFactory;
  * Extracts fully qualified class/interface/trait/enum names declared in PHP
  * source code, and tells whether a file is a "pure declaration file".
  *
+ * extract() and extractTopLevel() deliberately disagree on guarded
+ * declarations (`if (!class_exists(...)) { class Foo {} }`): extract()
+ * matches Composer's own classmap generator, which finds a class-like
+ * anywhere in the file regardless of the guard around it, because that is
+ * what actually ends up in the classmap. extractTopLevel() instead answers
+ * "which classes does this file declare unconditionally" for the analyzer's
+ * conflict/round-trip logic, which must not blame a polyfill for shadowing
+ * the class it only conditionally stands in for.
+ *
  * @internal
  */
 final class DeclaredClassExtractor
@@ -60,6 +69,58 @@ final class DeclaredClassExtractor
         }
 
         return array_values(array_unique($names));
+    }
+
+    /**
+     * Extracts the FQCNs of class-likes the file declares *unconditionally* at
+     * the namespace top level — the same notion of "top level" that
+     * {@see onlyDeclarations()} uses (recursing only into namespace and declare
+     * bodies), so a class nested in an `if` guard or a function is not counted.
+     * Anonymous classes are excluded and duplicates removed. Returns an empty
+     * array when the source cannot be parsed.
+     *
+     * Unlike {@see extract()}, which matches Composer's classmap generator by
+     * finding guarded declarations too, this answers what the require actually
+     * declares on its own — the input the analyzer's conflict/round-trip logic
+     * needs.
+     *
+     * @return list<string>
+     */
+    public function extractTopLevel(string $content): array
+    {
+        $stmts = $this->parse($content);
+        if ($stmts === null) {
+            return [];
+        }
+
+        // Resolve names so each declaration carries its fully qualified name.
+        $stmts = (new NodeTraverser(new NameResolver()))->traverse($stmts);
+
+        $names = [];
+        $this->collectTopLevelClassLikes($stmts, $names);
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * @param Node[] $stmts
+     * @param list<string> $names
+     */
+    private function collectTopLevelClassLikes(array $stmts, array &$names): void
+    {
+        foreach ($stmts as $stmt) {
+            if ($stmt instanceof Namespace_) {
+                $this->collectTopLevelClassLikes($stmt->stmts, $names);
+                continue;
+            }
+            if ($stmt instanceof Declare_ && $stmt->stmts !== null) {
+                $this->collectTopLevelClassLikes($stmt->stmts, $names);
+                continue;
+            }
+            if ($stmt instanceof ClassLike && $stmt->name !== null) {
+                $names[] = $stmt->namespacedName?->toString() ?? $stmt->name->toString();
+            }
+        }
     }
 
     /**

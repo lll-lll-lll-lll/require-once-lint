@@ -213,6 +213,60 @@ final class DeclaredClassExtractorTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // extractTopLevel (unconditional declarations only)
+    // -------------------------------------------------------------------------
+
+    public function testExtractTopLevelReturnsUnconditionalDeclarations(): void
+    {
+        $code = <<<'PHP'
+            <?php
+            namespace App;
+            class Foo
+            {
+            }
+            PHP;
+
+        self::assertSame(['App\Foo'], $this->extractor->extractTopLevel($code));
+    }
+
+    public function testExtractTopLevelSkipsGuardedDeclarationThatExtractFinds(): void
+    {
+        // A polyfill: the class is declared only when it is missing. extract()
+        // finds it (Composer's classmap would too); extractTopLevel() does not,
+        // because the require does not declare it unconditionally.
+        $code = <<<'PHP'
+            <?php
+            namespace App;
+            if (!class_exists(Widget::class)) {
+                class Widget
+                {
+                }
+            }
+            PHP;
+
+        self::assertSame(['App\Widget'], $this->extractor->extract($code));
+        self::assertSame([], $this->extractor->extractTopLevel($code));
+    }
+
+    public function testExtractTopLevelSkipsClassNestedInFunction(): void
+    {
+        $code = <<<'PHP'
+            <?php
+            namespace App;
+            function make(): object
+            {
+                return new class {
+                };
+            }
+            class Real
+            {
+            }
+            PHP;
+
+        self::assertSame(['App\Real'], $this->extractor->extractTopLevel($code));
+    }
+
+    // -------------------------------------------------------------------------
     // declaresOnlyTypes (PSR-1 side-effect gate)
     // -------------------------------------------------------------------------
 

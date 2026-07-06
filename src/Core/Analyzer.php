@@ -269,9 +269,10 @@ final class Analyzer
      * - `fixable`: no conflicts, but some class matches a PSR rule whose
      *   derived path does not exist. Fix the autoload config, then the require
      *   can be dropped.
-     * - `needed`: the target is unreadable, declares no types, also defines
-     *   functions/constants or runs top-level code, or declares a class no
-     *   autoload rule covers. The require is legitimate; `reason` says why.
+     * - `needed`: the target is unreadable, declares no types (or only
+     *   conditional ones, e.g. a polyfill behind a `class_exists` guard), also
+     *   defines functions/constants or runs top-level code, or declares a class
+     *   no autoload rule covers. The require is legitimate; `reason` says why.
      *
      * @return Classification
      */
@@ -306,9 +307,17 @@ final class Analyzer
             return ['category' => 'needed', 'reason' => 'target could not be read'];
         }
 
-        $classNames = $classExtractor->extract($content);
+        // The conflict/round-trip logic below must only trust classes the file
+        // declares unconditionally: a class behind an `if (!class_exists())`
+        // guard (a polyfill) does not shadow the real one, so it must not make
+        // the require conflicting. extract() — which also finds guarded classes,
+        // matching Composer's classmap — still separates "no types at all" from
+        // "only conditional types".
+        $classNames = $classExtractor->extractTopLevel($content);
         if ($classNames === []) {
-            return ['category' => 'needed', 'reason' => 'target declares no types'];
+            return $classExtractor->extract($content) === []
+                ? ['category' => 'needed', 'reason' => 'target declares no types']
+                : ['category' => 'needed', 'reason' => 'target declares types only conditionally'];
         }
 
         $allRoundTrip = true;
