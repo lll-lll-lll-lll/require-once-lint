@@ -60,6 +60,12 @@ final class FindRedundantCommand extends Command
 
         $traceOption = $input->getOption('trace');
         $traceTarget = is_string($traceOption) ? $traceOption : null;
+        if ($traceTarget === '') {
+            // An empty --trace= value would otherwise trace the repo root and
+            // leak its absolute path into otherwise repo-relative output.
+            $errOutput->writeln('--trace requires a non-empty file path');
+            return self::EXIT_ERROR;
+        }
 
         $formatOption = $input->getOption('format');
         $format = is_string($formatOption) ? $formatOption : 'text';

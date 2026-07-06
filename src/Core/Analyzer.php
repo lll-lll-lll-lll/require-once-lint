@@ -335,7 +335,11 @@ final class Analyzer
             // correlation from VerboseResolution's discriminated union.
             $resolution = $resolver->resolveVerbose($className);
 
-            if ($resolution['resolved'] !== null && PathHelper::normalize($resolution['resolved']) !== $normalizedTarget) {
+            if (
+                $resolution['resolved'] !== null
+                && PathHelper::normalize($resolution['resolved']) !== $normalizedTarget
+                && !$this->sameRealFile($resolution['resolved'], $normalizedTarget)
+            ) {
                 // A shadowed copy is a hazard however the file is shaped, so
                 // conflicting is reported even for files with side effects.
                 $winner = PathHelper::toRelative(PathHelper::normalize($resolution['resolved']), $this->repoRoot);
@@ -403,6 +407,20 @@ final class Analyzer
         }
 
         return ['category' => 'needed', 'reason' => "{$uncoveredClass} is not covered by any autoload rule"];
+    }
+
+    /**
+     * Reports whether two paths point at the same file on disk. Path comparison
+     * elsewhere is lexical (no filesystem access), which flags a false conflict
+     * when an autoload directory or the repo root is reached through a symlink:
+     * the two paths differ as strings but resolve to one inode, and at runtime
+     * the require round-trips. This only ever downgrades a false hazard.
+     */
+    private function sameRealFile(string $a, string $b): bool
+    {
+        $realA = realpath($a);
+
+        return $realA !== false && $realA === realpath($b);
     }
 
     /**

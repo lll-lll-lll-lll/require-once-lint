@@ -200,6 +200,24 @@ final class CliApplicationTest extends TestCase
         self::assertStringContainsString('public/index.php', $r['stdout']);
     }
 
+    public function testTraceWithEmptyValueExitsTwo(): void
+    {
+        $r = $this->runApp('--trace=');
+        self::assertSame(2, $r['exitCode']);
+        self::assertStringContainsString('--trace requires a non-empty file path', $r['stderr']);
+        self::assertSame('', $r['stdout']);
+    }
+
+    public function testTraceOnFileWithNoCallersReportsNoPaths(): void
+    {
+        // A file nobody requires has zero callers and therefore zero caller
+        // chains — not one phantom path consisting of just the target itself.
+        $r = $this->runApp('--trace', 'does/not/exist.php');
+        self::assertSame(0, $r['exitCode']);
+        self::assertStringContainsString('direct_callers=0', $r['stdout']);
+        self::assertStringContainsString('trace_paths=0', $r['stdout']);
+    }
+
     // -------------------------------------------------------------------------
     // --format=json
     // -------------------------------------------------------------------------

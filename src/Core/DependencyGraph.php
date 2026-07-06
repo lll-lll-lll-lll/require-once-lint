@@ -94,7 +94,11 @@ final class DependencyGraph
             // Finalize the path at a leaf node or once the max depth is reached.
             $reachedMaxDepth = $maxDepth > 0 && count($path) >= $maxDepth;
             if ($neighbors === [] || $reachedMaxDepth) {
-                $paths[] = array_reverse($path);
+                // A lone start node — a file nobody requires — is not a caller
+                // chain, so it must not be reported as a trace path.
+                if (count($path) > 1) {
+                    $paths[] = array_reverse($path);
+                }
                 if ($reachedMaxDepth) {
                     $truncated = true;
                 }
@@ -119,8 +123,9 @@ final class DependencyGraph
                 $addedCount++;
             }
 
-            // If every neighbor was excluded due to a cycle, record the current path as terminal.
-            if ($addedCount === 0) {
+            // If every neighbor was excluded due to a cycle, record the current
+            // path as terminal — but only if it reached at least one caller.
+            if ($addedCount === 0 && count($path) > 1) {
                 $paths[] = array_reverse($path);
             }
         }

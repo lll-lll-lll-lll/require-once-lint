@@ -450,6 +450,59 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    public function testSymlinkedRequireTargetIsNotFalselyConflicting(): void
+    {
+        // legacy/Widget.php is a symlink to src/Widget.php — the same file the
+        // App\ PSR-4 rule autoloads. Lexically the two paths differ, but they
+        // are one inode, so requiring the symlink round-trips at runtime and
+        // must be redundant, not conflicting.
+        if (!function_exists('symlink')) {
+            self::markTestSkipped('symlink() is not available');
+        }
+
+        $root = sys_get_temp_dir() . '/depone_symlink_' . bin2hex(random_bytes(6));
+        mkdir($root . '/src', 0777, true);
+        mkdir($root . '/legacy', 0777, true);
+        file_put_contents($root . '/composer.json', '{"autoload":{"psr-4":{"App\\\\":"src/"}}}');
+        file_put_contents(
+            $root . '/src/Widget.php',
+            "<?php\n\ndeclare(strict_types=1);\n\nnamespace App;\n\nclass Widget\n{\n}\n"
+        );
+        file_put_contents($root . '/boot.php', "<?php\n\nrequire_once __DIR__ . '/legacy/Widget.php';\n");
+        if (!@symlink($root . '/src/Widget.php', $root . '/legacy/Widget.php')) {
+            $this->removeTree($root);
+            self::markTestSkipped('symlink() failed on this filesystem');
+        }
+
+        try {
+            $result = (new Analyzer($root))->run();
+
+            self::assertSame([], $result['conflicting']);
+            self::assertContains('legacy/Widget.php', array_column($result['redundant'], 'target'));
+        } finally {
+            $this->removeTree($root);
+        }
+    }
+
+    private function removeTree(string $dir): void
+    {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            assert($item instanceof \SplFileInfo);
+            // is_link() before is_dir(): a symlink to a directory must be
+            // unlinked, not recursed into or rmdir'd.
+            if ($item->isLink() || !$item->isDir()) {
+                unlink($item->getPathname());
+            } else {
+                rmdir($item->getPathname());
+            }
+        }
+        rmdir($dir);
+    }
+
     public function testGuardedPolyfillDeclarationIsNeededNotConflicting(): void
     {
         // compat/polyfill.php declares App\Widget only behind a class_exists
