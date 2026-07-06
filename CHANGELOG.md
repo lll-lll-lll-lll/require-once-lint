@@ -46,6 +46,30 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
   `conflicting`) are now defined once and shared by the exit-code gate and the
   summary output. No behavior change.
 
+### Fixed
+
+- classmap duplicate classes now break ties the way Composer does — the first
+  occurrence wins, over a deterministic scan order — instead of letting the
+  last-scanned file win in raw filesystem order. Previously a require of the
+  shadowed copy could be reported `redundant` (safe to delete) when its true
+  category is `conflicting`.
+- guarded/conditional declarations (a polyfill behind `if (!class_exists())`)
+  are now `needed` (reason: `target declares types only conditionally`) instead
+  of a false `conflicting`: the guard makes the require idempotent, so nothing
+  is shadowed.
+- `--format=json` no longer exits `2` with empty output on repositories that
+  contain non-UTF-8 bytes in a file path or an unresolved include expression;
+  invalid bytes are substituted with U+FFFD and the document stays valid.
+- the static expression evaluator now matches PHP: double-quoted escapes keep
+  the backslash on sequences PHP does not recognize (so `"a\dir\file.php"` no
+  longer loses characters), binary string literals (`b'...'`) resolve,
+  `define()` is first-wins, and a `require` statement may end with a close tag
+  instead of a semicolon.
+- `--trace` rejects an empty path value and no longer reports a phantom
+  single-node trace path for a file nobody requires. A require target reached
+  through a symlink is no longer reported as `conflicting` when it resolves to
+  the same file autoload would load.
+
 ## [0.2.1] - 2026-07-05
 
 ### Changed
