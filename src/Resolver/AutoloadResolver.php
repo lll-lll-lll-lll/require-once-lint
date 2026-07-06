@@ -315,13 +315,24 @@ final class AutoloadResolver
             new \RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)
         );
 
+        $files = [];
         foreach ($iterator as $file) {
             if (!$file instanceof SplFileInfo) {
                 continue;
             }
             if ($file->isFile() && $file->getExtension() === 'php') {
-                $this->scanFileForClasses($file->getPathname());
+                $files[] = $file->getPathname();
             }
+        }
+
+        // RecursiveDirectoryIterator yields entries in raw filesystem order,
+        // which varies by platform and directory history. Sorting first makes
+        // which file wins a same-name classmap collision (see
+        // scanFileForClasses()) deterministic and independent of that order.
+        sort($files);
+
+        foreach ($files as $filePath) {
+            $this->scanFileForClasses($filePath);
         }
     }
 
@@ -337,7 +348,12 @@ final class AutoloadResolver
 
         $classExtractor = new DeclaredClassExtractor();
         foreach ($classExtractor->extract($content) as $fullClassName) {
-            $this->classmap[$fullClassName] = $filePath;
+            // Composer's ClassMapGenerator keeps the FIRST occurrence of a
+            // duplicate class name across classmap-scanned files. Ties here
+            // must break the same way, or a require of the file Composer
+            // actually ignores gets classified against the one it doesn't:
+            // conflicting and redundant swap places relative to runtime.
+            $this->classmap[$fullClassName] ??= $filePath;
         }
     }
 }

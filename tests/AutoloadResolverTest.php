@@ -298,6 +298,24 @@ final class AutoloadResolverTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // classmap duplicates
+    // -------------------------------------------------------------------------
+
+    public function testDuplicateClassAcrossTwoScannedDirsResolvesToFirstEntry(): void
+    {
+        // Dup is declared in both dup-a/One.php and dup-b/Two.php; composer.json
+        // lists dup-a/ before dup-b/. Composer's ClassMapGenerator keeps the
+        // first occurrence, so resolve() must return dup-a/One.php, not
+        // whichever file the filesystem happened to scan last.
+        $path = realpath(__DIR__ . '/Fixture/ClassmapDuplicateProject');
+        self::assertNotFalse($path, 'Fixture directory not found');
+
+        $resolver = new AutoloadResolver($path);
+
+        self::assertSame($path . '/dup-a/One.php', $resolver->resolve('Dup'));
+    }
+
+    // -------------------------------------------------------------------------
     // Missing composer.json
     // -------------------------------------------------------------------------
 

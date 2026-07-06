@@ -382,6 +382,53 @@ final class AnalyzerTest extends TestCase
         self::assertNotContains('src/WithSideEffect.php', $allTargets);
     }
 
+    public function testClassmapDuplicateBreaksTieTheWayComposerDoes(): void
+    {
+        // Dup is declared in both dup-a/One.php and dup-b/Two.php. Composer's
+        // ClassMapGenerator keeps the FIRST occurrence (dup-a/, per
+        // composer.json's classmap array order), so only the require of
+        // dup-a/One.php round-trips; the require of dup-b/Two.php loads a
+        // copy Composer never actually autoloads from.
+        $projectRoot = $this->getFixturePath('ClassmapDuplicateProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertSame(
+            [
+                [
+                    'file' => 'app.php',
+                    'line' => 10,
+                    'target' => 'dup-a/One.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            ['class' => 'Dup', 'via' => 'classmap', 'prefix' => null, 'path' => 'dup-a/One.php'],
+                        ],
+                    ],
+                ],
+            ],
+            $result['redundant']
+        );
+
+        self::assertSame(
+            [
+                [
+                    'file' => 'app.php',
+                    'line' => 9,
+                    'target' => 'dup-b/Two.php',
+                    'class' => 'Dup',
+                    'loaded_from' => 'dup-a/One.php',
+                    'detail' => 'Dup is autoloaded from dup-a/One.php — this require loads a shadowed copy',
+                ],
+            ],
+            $result['conflicting']
+        );
+        self::assertSame([], $result['fixable']);
+        self::assertSame([], $result['needed']);
+        self::assertSame([], $result['unresolved']);
+    }
+
     public function testActionableCategoriesConstantMatchesResultKeys(): void
     {
         $projectRoot = $this->getFixturePath('SampleProject');
