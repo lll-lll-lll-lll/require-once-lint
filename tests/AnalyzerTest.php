@@ -22,11 +22,25 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/grouped.php',
                     'line' => 5,
                     'target' => 'src/Foo.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            ['class' => 'App\Foo', 'via' => 'psr-4', 'prefix' => 'App\\', 'path' => 'src/Foo.php'],
+                        ],
+                    ],
                 ],
                 [
                     'file' => 'public/index.php',
                     'line' => 5,
                     'target' => 'src/Bar.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            ['class' => 'App\Bar', 'via' => 'psr-4', 'prefix' => 'App\\', 'path' => 'src/Bar.php'],
+                        ],
+                    ],
                 ],
             ],
             $result['redundant']
@@ -91,6 +105,18 @@ final class AnalyzerTest extends TestCase
                     'file' => 'tests/bootstrap.php',
                     'line' => 5,
                     'target' => 'dev-tests/TestSupport.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            [
+                                'class' => 'App\Tests\TestSupport',
+                                'via' => 'psr-4',
+                                'prefix' => 'App\Tests\\',
+                                'path' => 'dev-tests/TestSupport.php',
+                            ],
+                        ],
+                    ],
                 ],
             ],
             $result['redundant']
@@ -114,12 +140,20 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 5,
                     'target' => 'src/Pure.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            ['class' => 'App\Pure', 'via' => 'psr-4', 'prefix' => 'App\\', 'path' => 'src/Pure.php'],
+                        ],
+                    ],
                 ],
                 // autoload.files entry, loaded eagerly.
                 [
                     'file' => 'public/index.php',
                     'line' => 8,
                     'target' => 'src/eager.php',
+                    'proof' => ['eager' => true, 'pure_declaration' => null, 'classes' => []],
                 ],
             ],
             $result['redundant']
@@ -148,6 +182,13 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 5,
                     'target' => 'src/Reachable.php',
+                    'proof' => [
+                        'eager' => false,
+                        'pure_declaration' => true,
+                        'classes' => [
+                            ['class' => 'App\Reachable', 'via' => 'psr-4', 'prefix' => 'App\\', 'path' => 'src/Reachable.php'],
+                        ],
+                    ],
                 ],
             ],
             $result['redundant']
@@ -160,6 +201,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 6,
                     'target' => 'src/WrongPath.php',
+                    'class' => 'App\Sub\Missing',
+                    'expected_path' => 'src/Sub/Missing.php',
                     'detail' => 'App\Sub\Missing would load from src/Sub/Missing.php'
                         . ' — fix autoload, then remove this require',
                 ],
@@ -174,6 +217,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 7,
                     'target' => 'src/Dup.php',
+                    'class' => 'App\Dup',
+                    'loaded_from' => 'classmap/Dup.php',
                     'detail' => 'App\Dup is autoloaded from classmap/Dup.php'
                         . ' — this require loads a shadowed copy',
                 ],
@@ -181,7 +226,19 @@ final class AnalyzerTest extends TestCase
             $result['conflicting']
         );
 
-        // src/helper.php declares no type: a "needed" require, reported nowhere.
+        // src/helper.php declares no type: accounted for as "needed", absent
+        // from the redundant/fixable/conflicting/unresolved sections.
+        self::assertSame(
+            [
+                [
+                    'file' => 'public/index.php',
+                    'line' => 8,
+                    'target' => 'src/helper.php',
+                    'reason' => 'target declares no types',
+                ],
+            ],
+            $result['needed']
+        );
         self::assertSame([], $result['unresolved']);
     }
 
@@ -205,11 +262,13 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 8,
                     'target' => 'src/eager.php',
+                    'proof' => ['eager' => true, 'pure_declaration' => null, 'classes' => []],
                 ],
                 [
                     'file' => 'public/second.php',
                     'line' => 8,
                     'target' => 'dev/dev-eager.php',
+                    'proof' => ['eager' => true, 'pure_declaration' => null, 'classes' => []],
                 ],
             ],
             $result['redundant']
@@ -224,6 +283,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 6,
                     'target' => 'src/MixedMissing.php',
+                    'class' => 'App\Sub\Gone',
+                    'expected_path' => 'src/Sub/Gone.php',
                     'detail' => 'App\Sub\Gone would load from src/Sub/Gone.php'
                         . ' — fix autoload, then remove this require',
                 ],
@@ -231,6 +292,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/second.php',
                     'line' => 5,
                     'target' => 'src/MixedMissing.php',
+                    'class' => 'App\Sub\Gone',
+                    'expected_path' => 'src/Sub/Gone.php',
                     'detail' => 'App\Sub\Gone would load from src/Sub/Gone.php'
                         . ' — fix autoload, then remove this require',
                 ],
@@ -247,6 +310,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 5,
                     'target' => 'src/MixedShadow.php',
+                    'class' => 'App\Winner',
+                    'loaded_from' => 'classmap/Winner.php',
                     'detail' => 'App\Winner is autoloaded from classmap/Winner.php'
                         . ' — this require loads a shadowed copy',
                 ],
@@ -254,6 +319,8 @@ final class AnalyzerTest extends TestCase
                     'file' => 'public/index.php',
                     'line' => 9,
                     'target' => 'src/MixedBoth.php',
+                    'class' => 'App\Winner2',
+                    'loaded_from' => 'classmap/Winner2.php',
                     'detail' => 'App\Winner2 is autoloaded from classmap/Winner2.php'
                         . ' — this require loads a shadowed copy',
                 ],
@@ -261,16 +328,51 @@ final class AnalyzerTest extends TestCase
             $result['conflicting']
         );
 
-        // Silent by design: MixedGlobal (declares an uncovered class, memoized
-        // null on the second require), the nonexistent DoesNotExist.php target
-        // (no declarations, must not warn or crash), and the two side-effect
-        // files below.
+        // Needed: MixedGlobal (declares an uncovered class, memoized on the
+        // second require), the nonexistent DoesNotExist.php target (no
+        // declarations), and the two side-effect files, one row per require
+        // site — none of these are deletable, but none are silently dropped.
+        self::assertSame(
+            [
+                [
+                    'file' => 'public/index.php',
+                    'line' => 7,
+                    'target' => 'src/MixedGlobal.php',
+                    'reason' => 'GlobalEdgeHelper is not covered by any autoload rule',
+                ],
+                [
+                    'file' => 'public/second.php',
+                    'line' => 6,
+                    'target' => 'src/MixedGlobal.php',
+                    'reason' => 'GlobalEdgeHelper is not covered by any autoload rule',
+                ],
+                [
+                    'file' => 'public/second.php',
+                    'line' => 7,
+                    'target' => 'src/DoesNotExist.php',
+                    'reason' => 'target file does not exist',
+                ],
+                [
+                    'file' => 'public/second.php',
+                    'line' => 9,
+                    'target' => 'src/WithFunction.php',
+                    'reason' => 'target declares types but also defines functions/constants or runs top-level code',
+                ],
+                [
+                    'file' => 'public/second.php',
+                    'line' => 10,
+                    'target' => 'src/WithSideEffect.php',
+                    'reason' => 'target declares types but also defines functions/constants or runs top-level code',
+                ],
+            ],
+            $result['needed']
+        );
         self::assertSame([], $result['unresolved']);
 
         // WithFunction and WithSideEffect each round-trip their class, but the
         // files also declare a function / a constant + top-level statement.
         // Autoload would not reproduce those, so the requires are load-bearing
-        // and must appear in no section.
+        // and must appear in no actionable section.
         $allTargets = array_merge(
             array_column($result['redundant'], 'target'),
             array_column($result['fixable'], 'target'),
@@ -290,7 +392,7 @@ final class AnalyzerTest extends TestCase
         // a category added to run() but not to the constant would be invisible
         // to both. Asserting the full key list makes that drift fail loudly.
         self::assertSame(
-            [...Analyzer::ACTIONABLE_CATEGORIES, 'unresolved', 'edges'],
+            [...Analyzer::ACTIONABLE_CATEGORIES, 'needed', 'unresolved', 'edges'],
             array_keys($result)
         );
     }

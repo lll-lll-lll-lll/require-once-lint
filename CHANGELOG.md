@@ -9,6 +9,29 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Added
+
+- Every finding now carries its evidence, and every `require_once` is accounted
+  for. Requires that are legitimately not autoloadable are no longer silently
+  unreported: they form a fourth category, `needed`, with the reason the require
+  stays load-bearing (kept out of the default text output, which is unchanged).
+- `--format=json`: machine-readable output carrying the full evidence — per
+  redundant finding the proof (each declared class with the autoload mechanism
+  and resolved path, or the eager `autoload.files` fact), per fixable/conflicting
+  finding the class and path involved, plus the `needed` section and a coverage
+  summary. The document carries a `schema_version` (currently `1`).
+- `--explain`: human-readable variant of the text output that prepends a
+  coverage header (`includes_total`/`resolved`/`unresolved`/`needed_require_once`)
+  and prints the autoload evidence under each redundant finding. Not a frozen
+  format, unlike the default text output.
+- `--verify`: cross-checks every redundant finding against the autoload maps
+  Composer actually dumped under `vendor/composer/`, using Composer's own
+  `ClassLoader` (never executing project code). Mismatches — a stale
+  `composer dump-autoload` or a depone resolution bug — are reported in a
+  trailing `verify_mismatches` section (or a `verify` block in JSON) and count
+  as findings for the exit code. Exits `2` with guidance when no dumped maps
+  are present.
+
 ### Changed
 
 - **Breaking:** exit codes now distinguish findings from failures, so depone
