@@ -170,7 +170,10 @@ final class Analyzer
                 $constDefinition = $this->includeExprParser->parseDefine($tokens, $i, $consts, $absolutePath);
                 if ($constDefinition !== null) {
                     [$constName, $constValue] = $constDefinition;
-                    $consts[$constName] = $constValue;
+                    // PHP's define() is first-wins: a second define() of the
+                    // same name is ignored (it warns and keeps the original
+                    // value), so a redefinition must not overwrite here.
+                    $consts[$constName] ??= $constValue;
                 }
             }
 

@@ -429,6 +429,27 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    public function testEvaluatesExpressionsWithPhpSemantics(): void
+    {
+        // redefine.php: PHP's define() is first-wins, so LIB_ROOT keeps its
+        // first value ('a'); a second define() of the same name is ignored.
+        // closetag.php: the require statement ends with a close tag instead of
+        // a semicolon, which must still resolve rather than become unresolved.
+        $projectRoot = $this->getFixturePath('ExprSemanticsProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertContains(
+            ['from' => 'redefine.php', 'line' => 8, 'type' => 'require_once', 'to' => 'a/x.php'],
+            $result['edges']
+        );
+        self::assertContains(
+            ['from' => 'closetag.php', 'line' => 1, 'type' => 'require_once', 'to' => 'inc.php'],
+            $result['edges']
+        );
+        self::assertSame([], $result['unresolved']);
+    }
+
     public function testGuardedPolyfillDeclarationIsNeededNotConflicting(): void
     {
         // compat/polyfill.php declares App\Widget only behind a class_exists

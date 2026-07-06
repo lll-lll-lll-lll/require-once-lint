@@ -51,10 +51,10 @@ final class IncludeExprParser
 
     /**
      * Reads the argument tokens of a require/include statement.
-     * Tokens are collected up to (but not including) the terminating `;`; a
-     * leading parenthesized form such as `require_once('x.php')` is collected
-     * with its parentheses intact and left for StaticExprParser's grouping
-     * branch to evaluate.
+     * Tokens are collected up to (but not including) the terminating `;` or a
+     * `?>` close tag (a statement may end with either); a leading parenthesized
+     * form such as `require_once('x.php')` is collected with its parentheses
+     * intact and left for StaticExprParser's grouping branch to evaluate.
      *
      * Example: require_once LIB_DIR . '/foo.php';  -> [LIB_DIR, '.', '/foo.php']
      * Example: require_once(LIB_DIR . '/foo.php'); -> ['(', LIB_DIR, '.', '/foo.php', ')']
@@ -70,7 +70,11 @@ final class IncludeExprParser
         TokenHelper::skipTrivia($tokens, $cursor);
 
         $exprTokens = [];
-        while ($cursor < $count && $tokens[$cursor]->text !== ';') {
+        while (
+            $cursor < $count
+            && $tokens[$cursor]->text !== ';'
+            && $tokens[$cursor]->id !== T_CLOSE_TAG
+        ) {
             $exprTokens[] = $tokens[$cursor];
             $cursor++;
         }

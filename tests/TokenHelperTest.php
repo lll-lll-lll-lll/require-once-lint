@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Depone\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Depone\Internal\Tokenizer\Token;
 use Depone\Internal\Tokenizer\TokenHelper;
@@ -184,9 +185,45 @@ final class TokenHelperTest extends TestCase
         self::assertSame('back\\slash', TokenHelper::stripQuotes("'back\\\\slash'"));
     }
 
-    public function testStripQuotesUnescapesCStyleEscapesInDoubleQuotedString(): void
+    public function testStripQuotesUnescapesRecognizedDoubleQuoteEscapes(): void
     {
         self::assertSame("line\nbreak", TokenHelper::stripQuotes('"line\nbreak"'));
+        self::assertSame("a\tb", TokenHelper::stripQuotes('"a\tb"'));
+        self::assertSame('A', TokenHelper::stripQuotes('"\x41"'));
+        self::assertSame('A', TokenHelper::stripQuotes('"\101"'));
+        self::assertSame("\u{1F600}", TokenHelper::stripQuotes('"\u{1F600}"'));
+        self::assertSame('$v', TokenHelper::stripQuotes('"\$v"'));
+    }
+
+    /**
+     * PHP keeps the backslash on escapes it does not recognize (unlike C's
+     * stripcslashes, which drops it and mangles \a / \b). These are exactly the
+     * Windows-style paths legacy code puts in double quotes.
+     *
+     * @param string $literal
+     * @param string $expected
+     */
+    #[DataProvider('phpFaithfulDoubleQuoteCases')]
+    public function testStripQuotesKeepsBackslashOnUnknownDoubleQuoteEscapes(string $literal, string $expected): void
+    {
+        self::assertSame($expected, TokenHelper::stripQuotes($literal));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function phpFaithfulDoubleQuoteCases(): iterable
+    {
+        // Expected values use PHP's own double-quoted literals as ground truth.
+        yield 'unknown escape \\d' => ['"sub\dir/file.php"', "sub\dir/file.php"];
+        yield 'no escape \\a' => ['"p\alpha.php"', "p\alpha.php"];
+        yield 'no escape \\b' => ['"a\bin.php"', "a\bin.php"];
+    }
+
+    public function testStripQuotesHandlesBinaryStringPrefix(): void
+    {
+        self::assertSame('foo.php', TokenHelper::stripQuotes("b'foo.php'"));
+        self::assertSame('bar.php', TokenHelper::stripQuotes('B"bar.php"'));
     }
 
     public function testStripQuotesReturnsNullForUnquotedString(): void

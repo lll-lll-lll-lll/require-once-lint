@@ -100,6 +100,15 @@ final class TokenHelper
      */
     public static function stripQuotes(string $literal): ?string
     {
+        // A binary string prefix (b'...' / B"...") is just the same string.
+        if (
+            strlen($literal) >= 3
+            && ($literal[0] === 'b' || $literal[0] === 'B')
+            && ($literal[1] === "'" || $literal[1] === '"')
+        ) {
+            $literal = substr($literal, 1);
+        }
+
         $length = strlen($literal);
         if ($length < 2) {
             return null;
@@ -111,9 +120,8 @@ final class TokenHelper
 
         $inner = substr($literal, 1, -1);
 
-        // Double-quoted strings use C-style escape sequences.
         if ($quote === '"') {
-            return stripcslashes($inner);
+            return self::unescapeDoubleQuoted($inner);
         }
 
         // Single-quoted strings only unescape \' and \\.
@@ -121,6 +129,62 @@ final class TokenHelper
             "\\'" => "'",
             '\\\\' => '\\',
         ]);
+    }
+
+    /**
+     * Unescapes a double-quoted string body with PHP's own escape rules, which
+     * differ from C's (stripcslashes): PHP has no `\a`/`\b`, and an unknown
+     * escape such as `\d` keeps its backslash rather than dropping it. Only the
+     * sequences PHP recognizes are decoded; anything else is left verbatim.
+     */
+    private static function unescapeDoubleQuoted(string $inner): string
+    {
+        $simple = [
+            '\\' => '\\', '$' => '$', '"' => '"',
+            'n' => "\n", 'r' => "\r", 't' => "\t",
+            'v' => "\v", 'f' => "\f", 'e' => "\x1b",
+        ];
+
+        return preg_replace_callback(
+            '/\\\\(?:([\\\\$"nrtvfe])|([0-7]{1,3})|x([0-9A-Fa-f]{1,2})|u\{([0-9A-Fa-f]+)\})/',
+            static function (array $m) use ($simple): string {
+                if ($m[1] !== '') {
+                    return $simple[$m[1]];
+                }
+                if ($m[2] !== '') {
+                    return chr(intval($m[2], 8) & 0xFF);
+                }
+                if ($m[3] !== '') {
+                    return chr(intval($m[3], 16));
+                }
+
+                // Unicode escape \u{...}; keep the literal when out of range.
+                return self::codepointToUtf8(intval($m[4], 16)) ?? $m[0];
+            },
+            $inner
+        ) ?? $inner;
+    }
+
+    /**
+     * Encodes a Unicode codepoint as UTF-8, or null when it is out of range.
+     */
+    private static function codepointToUtf8(int $cp): ?string
+    {
+        if ($cp < 0 || $cp > 0x10FFFF) {
+            return null;
+        }
+        if ($cp < 0x80) {
+            return chr($cp);
+        }
+        if ($cp < 0x800) {
+            return chr(0xC0 | ($cp >> 6)) . chr(0x80 | ($cp & 0x3F));
+        }
+        if ($cp < 0x10000) {
+            return chr(0xE0 | ($cp >> 12)) . chr(0x80 | (($cp >> 6) & 0x3F)) . chr(0x80 | ($cp & 0x3F));
+        }
+
+        return chr(0xF0 | ($cp >> 18)) . chr(0x80 | (($cp >> 12) & 0x3F))
+            . chr(0x80 | (($cp >> 6) & 0x3F)) . chr(0x80 | ($cp & 0x3F));
     }
 
     /**
