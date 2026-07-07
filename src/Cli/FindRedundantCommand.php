@@ -8,7 +8,6 @@ use Depone\Internal\Core\Analyzer;
 use Depone\Internal\Core\DependencyGraph;
 use Depone\Internal\Core\OutputFormatter as InternalOutputFormatter;
 use Depone\Internal\Exception\AnalyzerException;
-use Depone\Internal\Resolver\ComposerLoaderVerifier;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -42,10 +41,7 @@ final class FindRedundantCommand extends Command
         $this
             ->setName(self::NAME)
             ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, fixable, conflicting).')
-            ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?')
-            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: "text" (default) or "json"', 'text')
-            ->addOption('explain', null, InputOption::VALUE_NONE, 'Prepend the coverage summary and print autoload evidence under each redundant finding (text only; human-facing output, not part of the frozen text contract)')
-            ->addOption('verify', null, InputOption::VALUE_NONE, 'Cross-check every redundant finding against the autoload maps Composer dumped under vendor/composer/ (uses Composer\'s own ClassLoader; never executes project code)');
+            ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -61,38 +57,6 @@ final class FindRedundantCommand extends Command
         $traceOption = $input->getOption('trace');
         $traceTarget = is_string($traceOption) ? $traceOption : null;
 
-        $formatOption = $input->getOption('format');
-        $format = is_string($formatOption) ? $formatOption : 'text';
-        if ($format !== 'text' && $format !== 'json') {
-            $errOutput->writeln("unknown format \"{$format}\" (expected \"text\" or \"json\")");
-            return self::EXIT_ERROR;
-        }
-
-        $explain = $input->getOption('explain') === true;
-        $verify = $input->getOption('verify') === true;
-
-        if ($traceTarget !== null) {
-            // --trace is an exclusive mode: none of the other output-shaping
-            // flags apply to it.
-            $incompatible = ['--format=json' => $format === 'json', '--explain' => $explain, '--verify' => $verify];
-            foreach ($incompatible as $flag => $given) {
-                if ($given) {
-                    $errOutput->writeln("{$flag} cannot be combined with --trace");
-                    return self::EXIT_ERROR;
-                }
-            }
-        }
-
-        if ($explain && $format === 'json') {
-            $errOutput->writeln('--explain only applies to the text format');
-            return self::EXIT_ERROR;
-        }
-
-        if ($verify && !ComposerLoaderVerifier::isAvailable($repoRoot)) {
-            $errOutput->writeln('composer autoload maps not found under vendor/composer — run "composer install" (or "composer dump-autoload") first');
-            return self::EXIT_ERROR;
-        }
-
         try {
             $analyzer = new Analyzer($repoRoot);
             $result = $analyzer->run();
@@ -106,23 +70,7 @@ final class FindRedundantCommand extends Command
                 return self::EXIT_OK;
             }
 
-            if ($verify) {
-                $verification = (new ComposerLoaderVerifier($repoRoot))->verifyFindings($result['redundant'], $repoRoot);
-                $result['redundant'] = $verification['entries'];
-                $mismatches = $verification['mismatches'];
-            } else {
-                $mismatches = null;
-            }
-
-            if ($format === 'json') {
-                $this->writeRaw($output, $formatter->formatJson($result, $mismatches));
-            } else {
-                $text = $explain ? $formatter->formatSummaryWithEvidence($result) : $formatter->formatSummary($result);
-                if ($mismatches !== null) {
-                    $text .= $formatter->formatVerifySection($mismatches);
-                }
-                $this->writeRaw($output, $text);
-            }
+            $this->writeRaw($output, $formatter->formatSummary($result));
 
             // unresolved entries are reported but deliberately do not affect
             // the exit code: legacy dynamic includes are often legitimate, and
@@ -135,7 +83,6 @@ final class FindRedundantCommand extends Command
                     break;
                 }
             }
-            $hasFindings = $hasFindings || ($mismatches !== null && $mismatches !== []);
 
             return $hasFindings ? self::EXIT_FINDINGS : self::EXIT_OK;
         } catch (AnalyzerException $e) {

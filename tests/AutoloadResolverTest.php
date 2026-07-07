@@ -181,7 +181,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'App\\',
                 'expectedPath' => self::$root . '/src/Foo.php',
                 'resolved' => self::$root . '/src/Foo.php',
-                'via' => 'psr-4',
             ],
             self::$resolver->resolveVerbose('App\Foo')
         );
@@ -196,7 +195,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'App\\',
                 'expectedPath' => self::$root . '/src/DoesNotExist.php',
                 'resolved' => null,
-                'via' => null,
             ],
             self::$resolver->resolveVerbose('App\DoesNotExist')
         );
@@ -209,7 +207,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'App\Specific\\',
                 'expectedPath' => self::$root . '/src/specific/SpecificFoo.php',
                 'resolved' => self::$root . '/src/specific/SpecificFoo.php',
-                'via' => 'psr-4',
             ],
             self::$resolver->resolveVerbose('App\Specific\SpecificFoo')
         );
@@ -225,7 +222,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'Multi\\',
                 'expectedPath' => self::$root . '/multi-a/FromB.php',
                 'resolved' => self::$root . '/multi-b/FromB.php',
-                'via' => 'psr-4',
             ],
             self::$resolver->resolveVerbose('Multi\FromB')
         );
@@ -239,7 +235,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'Legacy_',
                 'expectedPath' => self::$root . '/legacy/Legacy/Component.php',
                 'resolved' => self::$root . '/legacy/Legacy/Component.php',
-                'via' => 'psr-0',
             ],
             self::$resolver->resolveVerbose('Legacy_Component')
         );
@@ -252,7 +247,6 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => 'Legacy_',
                 'expectedPath' => self::$root . '/legacy/Legacy/Missing/Widget.php',
                 'resolved' => null,
-                'via' => null,
             ],
             self::$resolver->resolveVerbose('Legacy_Missing_Widget')
         );
@@ -261,7 +255,7 @@ final class AutoloadResolverTest extends TestCase
     public function testResolveVerboseNoMatchingRuleIsAllNull(): void
     {
         self::assertSame(
-            ['prefix' => null, 'expectedPath' => null, 'resolved' => null, 'via' => null],
+            ['prefix' => null, 'expectedPath' => null, 'resolved' => null],
             self::$resolver->resolveVerbose('Unknown\SomeClass')
         );
     }
@@ -275,25 +269,8 @@ final class AutoloadResolverTest extends TestCase
                 'prefix' => null,
                 'expectedPath' => null,
                 'resolved' => self::$root . '/classmap/MappedClass.php',
-                'via' => 'classmap',
             ],
             self::$resolver->resolveVerbose('Mapped\MappedClass')
-        );
-    }
-
-    public function testResolveVerboseClassmapWinsOverMatchingPsr4Prefix(): void
-    {
-        // App\OverriddenClass matches the App\ PSR-4 rule (so `prefix` and
-        // `expectedPath` still describe it), but a classmap entry resolves
-        // the class first, so `via` reports the mechanism that actually won.
-        self::assertSame(
-            [
-                'prefix' => 'App\\',
-                'expectedPath' => self::$root . '/src/OverriddenClass.php',
-                'resolved' => self::$root . '/classmap/OverriddenClass.php',
-                'via' => 'classmap',
-            ],
-            self::$resolver->resolveVerbose('App\OverriddenClass')
         );
     }
 

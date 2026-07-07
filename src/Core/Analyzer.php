@@ -30,23 +30,13 @@ use SplFileInfo;
  * rule matches but whose derived path is missing makes the require `fixable`
  * (fix the autoload config, then the require can be dropped). Requires that are
  * legitimately not autoloadable (no matching rule, or the target declares no
- * types) are no longer left unreported: they are accounted for as `needed`,
- * carrying the reason why the require stays load-bearing. `needed` is absent
- * from the default text output but visible in the JSON output and counted in
- * the `--explain` coverage header.
+ * types) are left unreported.
  *
- * @phpstan-import-type VerboseResolution from \Depone\Internal\Resolver\AutoloadResolver
- * @phpstan-type Evidence array{class: string, via: 'classmap'|'psr-4'|'psr-0', prefix: string|null, path: string}
- * @phpstan-type RedundantProof array{eager: bool, pure_declaration: bool|null, classes: list<Evidence>}
- * `verified` is set only by the --verify pipeline (ComposerLoaderVerifier::verifyFindings), never by the Analyzer itself.
- * @phpstan-type RedundantEntry array{file: string, line: int, target: string, proof: RedundantProof, verified?: bool}
- * @phpstan-type FixableEntry array{file: string, line: int, target: string, class: string, expected_path: string, detail: string}
- * @phpstan-type ConflictingEntry array{file: string, line: int, target: string, class: string, loaded_from: string, detail: string}
- * @phpstan-type NeededEntry array{file: string, line: int, target: string, reason: string}
+ * @phpstan-type RedundantEntry array{file: string, line: int, target: string}
+ * @phpstan-type ClassifiedEntry array{file: string, line: int, target: string, detail: string}
  * @phpstan-type UnresolvedEntry array{file: string, line: int, type: string, reason: string, expr: string}
  * @phpstan-type Edge array{from: string, line: int, type: string, to: string}
- * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, fixable: list<FixableEntry>, conflicting: list<ConflictingEntry>, needed: list<NeededEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
- * @phpstan-type Classification array{category: 'redundant', proof: RedundantProof}|array{category: 'fixable', class: string, expected_path: string, detail: string}|array{category: 'conflicting', class: string, loaded_from: string, detail: string}|array{category: 'needed', reason: string}
+ * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, fixable: list<ClassifiedEntry>, conflicting: list<ClassifiedEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
  *
  * @internal
  */
@@ -70,7 +60,7 @@ final class Analyzer
      * requires the same file from many places, and re-tokenizing the target
      * for every edge would be wasted work.
      *
-     * @var array<string, Classification>
+     * @var array<string, array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null>
      */
     private array $requireClassifications = [];
 
@@ -97,7 +87,6 @@ final class Analyzer
         $redundant = [];
         $fixable = [];
         $conflicting = [];
-        $needed = [];
         $edges = [];
         $unresolved = [];
 
@@ -112,7 +101,6 @@ final class Analyzer
             $redundant = array_merge($redundant, $fileResult['redundant']);
             $fixable = array_merge($fixable, $fileResult['fixable']);
             $conflicting = array_merge($conflicting, $fileResult['conflicting']);
-            $needed = array_merge($needed, $fileResult['needed']);
             $edges = array_merge($edges, $fileResult['edges']);
             $unresolved = array_merge($unresolved, $fileResult['unresolved']);
         }
@@ -123,13 +111,11 @@ final class Analyzer
         usort($redundant, $sortByLocation);
         usort($fixable, $sortByLocation);
         usort($conflicting, $sortByLocation);
-        usort($needed, $sortByLocation);
 
         return [
             'redundant' => $redundant,
             'fixable' => $fixable,
             'conflicting' => $conflicting,
-            'needed' => $needed,
             'unresolved' => $unresolved,
             'edges' => $edges,
         ];
@@ -152,7 +138,6 @@ final class Analyzer
         $redundant = [];
         $fixable = [];
         $conflicting = [];
-        $needed = [];
         $edges = [];
         $unresolved = [];
         $consts = [];
@@ -212,8 +197,13 @@ final class Analyzer
             // any code runs, so this require is a no-op no matter what the
             // target declares.
             $classification = isset($eagerFiles[$targetAbs])
-                ? ['category' => 'redundant', 'proof' => ['eager' => true, 'pure_declaration' => null, 'classes' => []]]
+                ? ['category' => 'redundant', 'detail' => null]
                 : $this->classifyRequireTarget($targetAbs, $resolver, $classExtractor);
+
+            if ($classification === null) {
+                // "needed": the target is legitimately not autoloadable.
+                continue;
+            }
 
             $entry = [
                 'file' => $relativePath,
@@ -221,27 +211,16 @@ final class Analyzer
                 'target' => $targetRelative,
             ];
 
-            switch ($classification['category']) {
-                case 'redundant':
-                    $entry['proof'] = $classification['proof'];
-                    $redundant[] = $entry;
-                    break;
-                case 'fixable':
-                    $entry['class'] = $classification['class'];
-                    $entry['expected_path'] = $classification['expected_path'];
-                    $entry['detail'] = $classification['detail'];
-                    $fixable[] = $entry;
-                    break;
-                case 'conflicting':
-                    $entry['class'] = $classification['class'];
-                    $entry['loaded_from'] = $classification['loaded_from'];
-                    $entry['detail'] = $classification['detail'];
-                    $conflicting[] = $entry;
-                    break;
-                case 'needed':
-                    $entry['reason'] = $classification['reason'];
-                    $needed[] = $entry;
-                    break;
+            if ($classification['category'] === 'redundant') {
+                $redundant[] = $entry;
+                continue;
+            }
+
+            $entry['detail'] = $classification['detail'];
+            if ($classification['category'] === 'conflicting') {
+                $conflicting[] = $entry;
+            } else {
+                $fixable[] = $entry;
             }
         }
 
@@ -249,7 +228,6 @@ final class Analyzer
             'redundant' => $redundant,
             'fixable' => $fixable,
             'conflicting' => $conflicting,
-            'needed' => $needed,
             'edges' => $edges,
             'unresolved' => $unresolved,
         ];
@@ -261,25 +239,23 @@ final class Analyzer
      * - `redundant`: *every* declared class autoloads back to the target, so
      *   deleting the require cannot change where any declaration loads from.
      *   One round-tripping class is not enough: a sibling class that resolves
-     *   elsewhere (or nowhere) makes the require load-bearing. The evidence
-     *   for each round-tripping class is carried in `proof`.
+     *   elsewhere (or nowhere) makes the require load-bearing.
      * - `conflicting`: some declared class is autoloaded from a *different*
      *   file. Deleting the require would silently swap which definition loads,
      *   so this hazard dominates every other category.
      * - `fixable`: no conflicts, but some class matches a PSR rule whose
      *   derived path does not exist. Fix the autoload config, then the require
      *   can be dropped.
-     * - `needed`: the target is unreadable, declares no types, also defines
-     *   functions/constants or runs top-level code, or declares a class no
-     *   autoload rule covers. The require is legitimate; `reason` says why.
+     * - null ("needed"): the target declares no types, or a class no autoload
+     *   rule covers. The require is legitimate and stays unreported.
      *
-     * @return Classification
+     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
      */
     private function classifyRequireTarget(
         string $targetAbs,
         AutoloadResolver $resolver,
         DeclaredClassExtractor $classExtractor
-    ): array {
+    ): ?array {
         $normalizedTarget = PathHelper::normalize($targetAbs);
         if (array_key_exists($normalizedTarget, $this->requireClassifications)) {
             return $this->requireClassifications[$normalizedTarget];
@@ -290,80 +266,58 @@ final class Analyzer
     }
 
     /**
-     * @return Classification
+     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
      */
     private function computeRequireClassification(
         string $normalizedTarget,
         AutoloadResolver $resolver,
         DeclaredClassExtractor $classExtractor
-    ): array {
+    ): ?array {
         // Require targets are arbitrary paths, including ones that point nowhere.
         if (!is_file($normalizedTarget)) {
-            return ['category' => 'needed', 'reason' => 'target file does not exist'];
+            return null;
         }
         $content = file_get_contents($normalizedTarget);
         if (!is_string($content)) {
-            return ['category' => 'needed', 'reason' => 'target could not be read'];
+            return null;
         }
 
         $classNames = $classExtractor->extract($content);
         if ($classNames === []) {
-            return ['category' => 'needed', 'reason' => 'target declares no types'];
+            return null;
         }
 
         $allRoundTrip = true;
         $fixable = null;
-        $uncoveredClass = null;
-        $evidence = [];
-        $targetRelative = PathHelper::toRelative($normalizedTarget, $this->repoRoot);
 
         foreach ($classNames as $className) {
-            // Checked as $resolution['resolved'] throughout (never split into
-            // a separate variable) so PHPStan keeps tracking the resolved/via
-            // correlation from VerboseResolution's discriminated union.
             $resolution = $resolver->resolveVerbose($className);
+            $resolved = $resolution['resolved'];
 
-            if ($resolution['resolved'] !== null && PathHelper::normalize($resolution['resolved']) !== $normalizedTarget) {
+            if ($resolved !== null && PathHelper::normalize($resolved) !== $normalizedTarget) {
                 // A shadowed copy is a hazard however the file is shaped, so
                 // conflicting is reported even for files with side effects.
-                $winner = PathHelper::toRelative(PathHelper::normalize($resolution['resolved']), $this->repoRoot);
+                $winner = PathHelper::toRelative(PathHelper::normalize($resolved), $this->repoRoot);
 
                 return [
                     'category' => 'conflicting',
-                    'class' => $className,
-                    'loaded_from' => $winner,
                     'detail' => "{$className} is autoloaded from {$winner} — this require loads a shadowed copy",
                 ];
             }
 
-            if ($resolution['resolved'] !== null) {
-                // Round-trips to the target: one piece of evidence per class.
-                $evidence[] = [
-                    'class' => $className,
-                    'via' => $resolution['via'],
-                    'prefix' => $resolution['prefix'],
-                    'path' => $targetRelative,
-                ];
+            if ($resolved !== null) {
+                // Round-trips to the target.
                 continue;
             }
 
             $allRoundTrip = false;
 
-            if ($resolution['expectedPath'] !== null) {
-                if ($fixable === null) {
-                    $expected = PathHelper::toRelative(PathHelper::normalize($resolution['expectedPath']), $this->repoRoot);
-                    $fixable = [
-                        'category' => 'fixable',
-                        'class' => $className,
-                        'expected_path' => $expected,
-                        'detail' => "{$className} would load from {$expected} — fix autoload, then remove this require",
-                    ];
-                }
-            } elseif ($uncoveredClass === null) {
-                // No PSR rule matches this class at all: track the first one
-                // for the "needed" reason below, in case nothing turns out
-                // fixable either.
-                $uncoveredClass = $className;
+            if ($resolution['expectedPath'] !== null && $fixable === null) {
+                $expected = PathHelper::toRelative(PathHelper::normalize($resolution['expectedPath']), $this->repoRoot);
+                $fixable = [
+                    'category' => 'fixable',
+                    'detail' => "{$className} would load from {$expected} — fix autoload, then remove this require",
+                ];
             }
         }
 
@@ -371,26 +325,16 @@ final class Analyzer
         // only holds if autoload reproduces everything the target provides.
         // Autoload loads class-like declarations lazily and nothing else, so a
         // target that also defines functions/constants or runs top-level side
-        // effects keeps the require load-bearing.
+        // effects keeps the require load-bearing: leave it unreported.
         if (!$classExtractor->declaresOnlyTypes($content)) {
-            return [
-                'category' => 'needed',
-                'reason' => 'target declares types but also defines functions/constants or runs top-level code',
-            ];
+            return null;
         }
 
         if ($fixable !== null) {
             return $fixable;
         }
 
-        if ($allRoundTrip) {
-            return [
-                'category' => 'redundant',
-                'proof' => ['eager' => false, 'pure_declaration' => true, 'classes' => $evidence],
-            ];
-        }
-
-        return ['category' => 'needed', 'reason' => "{$uncoveredClass} is not covered by any autoload rule"];
+        return $allRoundTrip ? ['category' => 'redundant', 'detail' => null] : null;
     }
 
     /**
