@@ -72,7 +72,7 @@ final class DeclaredClassExtractor
      * declarations, and only lazily on first reference. If a required file also
      * defines functions or constants, or runs top-level statements, autoload
      * does not reproduce those, so the require is load-bearing and must not be
-     * called redundant/fixable even when its classes are autoload-reachable.
+     * called redundant even when its classes are autoload-reachable.
      *
      * The check errs toward reporting side effects: unparsable source and any
      * unrecognized top-level statement count, so the caller stays on the safe

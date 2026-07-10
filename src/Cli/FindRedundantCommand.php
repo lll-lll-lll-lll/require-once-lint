@@ -21,9 +21,9 @@ final class FindRedundantCommand extends Command
 {
     public const NAME = 'depone';
 
-    /** Analysis ran; no redundant, fixable, or conflicting require was found. */
+    /** Analysis ran; no redundant or conflicting require was found. */
     public const EXIT_OK = 0;
-    /** Analysis ran; at least one redundant, fixable, or conflicting require was reported. */
+    /** Analysis ran; at least one redundant or conflicting require was reported. */
     public const EXIT_FINDINGS = 1;
     /** The analysis could not run (unreadable composer.json, invalid invocation, ...). */
     public const EXIT_ERROR = 2;
@@ -40,7 +40,7 @@ final class FindRedundantCommand extends Command
     {
         $this
             ->setName(self::NAME)
-            ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, fixable, conflicting).')
+            ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, conflicting).')
             ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?');
     }
 

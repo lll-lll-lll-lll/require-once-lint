@@ -18,8 +18,6 @@ configuration, and without ever rewriting your code:
 
 - **redundant** — the target is already autoloaded; deleting the require is
   provably safe
-- **fixable** — the target *should* be autoloaded but isn't (broken autoload
-  config)
 - **conflicting** — the require loads a shadowed copy; deleting it would
   change which class definition loads
 
@@ -64,8 +62,6 @@ redundant_require_once=2
 public/index.php:4 => src/Greeting.php
 public/index.php:5 => src/Legacy/Mailer.php
 
-fixable_require_once=0
-
 conflicting_require_once=0
 
 unresolved_include_require=1
@@ -104,21 +100,20 @@ removed safely and left to Composer's autoloader.
 
 ## Understanding the report
 
-Each `require_once` whose target resolves statically falls into one of four
+Each `require_once` whose target resolves statically falls into one of three
 categories:
 
 | Section | Meaning | What to do |
 | --- | --- | --- |
 | `redundant_require_once` | The target is already autoloaded, and deleting the require provably changes nothing. | Delete the require. |
-| `fixable_require_once` | The target declares a class that matches a PSR-4/PSR-0 rule, but the rule derives a path that does not exist — so it never autoloads. | Fix the autoload config, then delete the require. |
 | `conflicting_require_once` | The target declares a class that Composer autoloads from a *different* file. Deleting the require would change which definition loads. | Investigate the shadowed copy before touching the require. |
-| *(none — silent)* | The target is legitimately not autoloadable: no matching rule, it declares no types, or it also defines functions/constants or runs top-level code. | Leave it; the require is load-bearing. |
+| *(none — silent)* | The target is legitimately not autoloadable: no matching rule, a class whose derived path is missing, it declares no types, or it also defines functions/constants or runs top-level code. | Leave it; the require is load-bearing. |
 
 A require is only ever called `redundant` when deleting it is provably safe:
 the target is an eager `autoload.files` entry, or it declares nothing but
 class-like types (no functions, constants, or side effects) and *every* class
-it declares autoloads back to that same file. `fixable` and `conflicting` are
-flagged but never presented as free deletions.
+it declares autoloads back to that same file. `conflicting` is flagged but
+never presented as a free deletion.
 
 Include/require statements whose path expression cannot be resolved statically
 are never silently skipped — they are listed under
@@ -135,8 +130,8 @@ are never silently skipped — they are listed under
 
 | Code | Meaning |
 | --- | --- |
-| `0` | The analysis ran and found no redundant, fixable, or conflicting require. |
-| `1` | The analysis ran and reported at least one redundant, fixable, or conflicting require. |
+| `0` | The analysis ran and found no redundant or conflicting require. |
+| `1` | The analysis ran and reported at least one redundant or conflicting require. |
 | `2` | The analysis could not run (unreadable `composer.json`, unknown option, ...). |
 
 `unresolved_include_require` entries are reported but never affect the exit
@@ -147,7 +142,7 @@ informational and always exits `0` unless the analysis itself fails.
 ## Using in CI
 
 Because findings exit non-zero, a plain step fails the build as soon as a
-redundant, fixable, or conflicting require appears:
+redundant or conflicting require appears:
 
 ```yaml
 - run: composer install --no-progress
@@ -180,22 +175,21 @@ too — the step would stay green even when no analysis happened.
    - **redundant** — the target is an eager `autoload.files` entry, or it
      declares nothing but types and *every* declared class resolves back to
      that same file. Deleting it is provably safe.
-   - **fixable** — a declared class matches a PSR rule, but the rule derives a
-     path that does not exist, so it never autoloads.
    - **conflicting** — a declared class autoloads from a *different* file, so
      the require loads a shadowed copy.
-   - otherwise the require is left unreported (no matching rule, no declared
-     types, or the file also defines functions/constants or runs top-level
-     code — autoload would not reproduce those, so the require is load-bearing).
+   - otherwise the require is left unreported (no matching rule, a declared
+     class whose derived path is missing, no declared types, or the file also
+     defines functions/constants or runs top-level code — autoload would not
+     reproduce those, so the require is load-bearing).
 
 ## Relationship to PHPStan and Rector
 
 depone isn't a replacement for PHPStan, Psalm, or Rector — use it alongside
 them. It covers one narrow thing they don't have a rule for: relating each
-`require_once` to Composer autoload — is the target already autoloaded, should
-it be but isn't, or does it shadow an autoloaded copy? That is a
-path-resolution + autoload-matching problem rather than an AST transformation,
-which is why it lives as a small standalone tool. `composer dump-autoload
+`require_once` to Composer autoload — is the target already autoloaded, or does
+it shadow an autoloaded copy? That is a path-resolution + autoload-matching
+problem rather than an AST transformation, which is why it lives as a small
+standalone tool. `composer dump-autoload
 --strict-psr`/`--strict-ambiguous` validates the autoload config on its own,
 but never parses source-level `require_once` statements, so it cannot make this
 connection. depone is also report-only by design and never rewrites your code.

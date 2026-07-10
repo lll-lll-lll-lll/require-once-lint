@@ -26,17 +26,16 @@ use SplFileInfo;
  * eagerly before any code runs), or *every* class the target declares
  * autoloads back to the target itself. Otherwise the declared classes decide:
  * a class autoload resolves to a *different* file makes the require `conflicting`
- * (it loads a shadowed copy — a hazard, not a simple delete); a class whose PSR
- * rule matches but whose derived path is missing makes the require `fixable`
- * (fix the autoload config, then the require can be dropped). Requires that are
- * legitimately not autoloadable (no matching rule, or the target declares no
- * types) are left unreported.
+ * (it loads a shadowed copy — a hazard, not a simple delete). Requires that are
+ * legitimately not autoloadable (no matching rule, the target declares no
+ * types, or some declared class is not autoload-reachable from the target) are
+ * left unreported.
  *
  * @phpstan-type RedundantEntry array{file: string, line: int, target: string}
  * @phpstan-type ClassifiedEntry array{file: string, line: int, target: string, detail: string}
  * @phpstan-type UnresolvedEntry array{file: string, line: int, type: string, reason: string, expr: string}
  * @phpstan-type Edge array{from: string, line: int, type: string, to: string}
- * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, fixable: list<ClassifiedEntry>, conflicting: list<ClassifiedEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
+ * @phpstan-type AnalysisResult array{redundant: list<RedundantEntry>, conflicting: list<ClassifiedEntry>, unresolved: list<UnresolvedEntry>, edges: list<Edge>}
  *
  * @internal
  */
@@ -50,7 +49,7 @@ final class Analyzer
      * CI stays green. `unresolved` and `edges` are informational only and
      * deliberately excluded.
      */
-    public const ACTIONABLE_CATEGORIES = ['redundant', 'fixable', 'conflicting'];
+    public const ACTIONABLE_CATEGORIES = ['redundant', 'conflicting'];
 
     private string $repoRoot;
     private IncludeExprParser $includeExprParser;
@@ -60,7 +59,7 @@ final class Analyzer
      * requires the same file from many places, and re-tokenizing the target
      * for every edge would be wasted work.
      *
-     * @var array<string, array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null>
+     * @var array<string, array{category: 'redundant', detail: null}|array{category: 'conflicting', detail: string}|null>
      */
     private array $requireClassifications = [];
 
@@ -85,7 +84,6 @@ final class Analyzer
         $phpFiles = $this->collectPhpFiles();
 
         $redundant = [];
-        $fixable = [];
         $conflicting = [];
         $edges = [];
         $unresolved = [];
@@ -99,7 +97,6 @@ final class Analyzer
 
             $fileResult = $this->analyzeFile($content, $file, $relativeFile, $eagerFiles, $resolver, $classExtractor);
             $redundant = array_merge($redundant, $fileResult['redundant']);
-            $fixable = array_merge($fixable, $fileResult['fixable']);
             $conflicting = array_merge($conflicting, $fileResult['conflicting']);
             $edges = array_merge($edges, $fileResult['edges']);
             $unresolved = array_merge($unresolved, $fileResult['unresolved']);
@@ -109,12 +106,10 @@ final class Analyzer
             return [$a['file'], $a['line'], $a['target']] <=> [$b['file'], $b['line'], $b['target']];
         };
         usort($redundant, $sortByLocation);
-        usort($fixable, $sortByLocation);
         usort($conflicting, $sortByLocation);
 
         return [
             'redundant' => $redundant,
-            'fixable' => $fixable,
             'conflicting' => $conflicting,
             'unresolved' => $unresolved,
             'edges' => $edges,
@@ -136,7 +131,6 @@ final class Analyzer
         DeclaredClassExtractor $classExtractor
     ): array {
         $redundant = [];
-        $fixable = [];
         $conflicting = [];
         $edges = [];
         $unresolved = [];
@@ -216,17 +210,13 @@ final class Analyzer
                 continue;
             }
 
+            // The only remaining classification is `conflicting`.
             $entry['detail'] = $classification['detail'];
-            if ($classification['category'] === 'conflicting') {
-                $conflicting[] = $entry;
-            } else {
-                $fixable[] = $entry;
-            }
+            $conflicting[] = $entry;
         }
 
         return [
             'redundant' => $redundant,
-            'fixable' => $fixable,
             'conflicting' => $conflicting,
             'edges' => $edges,
             'unresolved' => $unresolved,
@@ -242,14 +232,13 @@ final class Analyzer
      *   elsewhere (or nowhere) makes the require load-bearing.
      * - `conflicting`: some declared class is autoloaded from a *different*
      *   file. Deleting the require would silently swap which definition loads,
-     *   so this hazard dominates every other category.
-     * - `fixable`: no conflicts, but some class matches a PSR rule whose
-     *   derived path does not exist. Fix the autoload config, then the require
-     *   can be dropped.
-     * - null ("needed"): the target declares no types, or a class no autoload
-     *   rule covers. The require is legitimate and stays unreported.
+     *   so this hazard dominates every other outcome.
+     * - null ("needed"): the target declares no types, or some declared class
+     *   is not autoload-reachable back to the target (no matching rule, or a
+     *   rule whose derived path is missing). The require is load-bearing and
+     *   stays unreported.
      *
-     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
+     * @return array{category: 'redundant', detail: null}|array{category: 'conflicting', detail: string}|null
      */
     private function classifyRequireTarget(
         string $targetAbs,
@@ -266,7 +255,7 @@ final class Analyzer
     }
 
     /**
-     * @return array{category: 'redundant', detail: null}|array{category: 'fixable'|'conflicting', detail: string}|null
+     * @return array{category: 'redundant', detail: null}|array{category: 'conflicting', detail: string}|null
      */
     private function computeRequireClassification(
         string $normalizedTarget,
@@ -288,11 +277,9 @@ final class Analyzer
         }
 
         $allRoundTrip = true;
-        $fixable = null;
 
         foreach ($classNames as $className) {
-            $resolution = $resolver->resolveVerbose($className);
-            $resolved = $resolution['resolved'];
+            $resolved = $resolver->resolve($className);
 
             if ($resolved !== null && PathHelper::normalize($resolved) !== $normalizedTarget) {
                 // A shadowed copy is a hazard however the file is shaped, so
@@ -305,33 +292,20 @@ final class Analyzer
                 ];
             }
 
-            if ($resolved !== null) {
-                // Round-trips to the target.
-                continue;
-            }
-
-            $allRoundTrip = false;
-
-            if ($resolution['expectedPath'] !== null && $fixable === null) {
-                $expected = PathHelper::toRelative(PathHelper::normalize($resolution['expectedPath']), $this->repoRoot);
-                $fixable = [
-                    'category' => 'fixable',
-                    'detail' => "{$className} would load from {$expected} — fix autoload, then remove this require",
-                ];
+            if ($resolved === null) {
+                // A class autoload cannot reach back to the target keeps the
+                // require load-bearing: deleting it would drop this class.
+                $allRoundTrip = false;
             }
         }
 
-        // Redundant/fixable both promise the require can eventually go, which
-        // only holds if autoload reproduces everything the target provides.
-        // Autoload loads class-like declarations lazily and nothing else, so a
-        // target that also defines functions/constants or runs top-level side
-        // effects keeps the require load-bearing: leave it unreported.
+        // Redundant promises the require can go, which only holds if autoload
+        // reproduces everything the target provides. Autoload loads class-like
+        // declarations lazily and nothing else, so a target that also defines
+        // functions/constants or runs top-level side effects keeps the require
+        // load-bearing: leave it unreported.
         if (!$classExtractor->declaresOnlyTypes($content)) {
             return null;
-        }
-
-        if ($fixable !== null) {
-            return $fixable;
         }
 
         return $allRoundTrip ? ['category' => 'redundant', 'detail' => null] : null;

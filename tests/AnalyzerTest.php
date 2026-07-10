@@ -153,19 +153,14 @@ final class AnalyzerTest extends TestCase
             $result['redundant']
         );
 
-        // Fixable: App\Sub\Missing matches the App\ rule but derives a missing path.
-        self::assertSame(
-            [
-                [
-                    'file' => 'public/index.php',
-                    'line' => 6,
-                    'target' => 'src/WrongPath.php',
-                    'detail' => 'App\Sub\Missing would load from src/Sub/Missing.php'
-                        . ' — fix autoload, then remove this require',
-                ],
-            ],
-            $result['fixable']
+        // src/WrongPath.php declares App\Sub\Missing, which matches the App\
+        // rule but derives a missing path — not autoload-reachable, so the
+        // require stays load-bearing and is reported in no section.
+        $reportedTargets = array_merge(
+            array_column($result['redundant'], 'target'),
+            array_column($result['conflicting'], 'target')
         );
+        self::assertNotContains('src/WrongPath.php', $reportedTargets);
 
         // Conflicting: App\Dup autoloads from classmap/Dup.php, not the required file.
         self::assertSame(
@@ -215,32 +210,10 @@ final class AnalyzerTest extends TestCase
             $result['redundant']
         );
 
-        // App\MixedMissing round-trips, but App\Sub\Gone derives a missing
-        // path. The same target required from a second file yields a second
-        // entry with the identical detail (served from the per-target memo).
-        self::assertSame(
-            [
-                [
-                    'file' => 'public/index.php',
-                    'line' => 6,
-                    'target' => 'src/MixedMissing.php',
-                    'detail' => 'App\Sub\Gone would load from src/Sub/Gone.php'
-                        . ' — fix autoload, then remove this require',
-                ],
-                [
-                    'file' => 'public/second.php',
-                    'line' => 5,
-                    'target' => 'src/MixedMissing.php',
-                    'detail' => 'App\Sub\Gone would load from src/Sub/Gone.php'
-                        . ' — fix autoload, then remove this require',
-                ],
-            ],
-            $result['fixable']
-        );
-
         // MixedShadow: App\Winner is autoloaded elsewhere. MixedBoth declares
-        // the fixable App\Sub\AlsoGone FIRST and the shadowed App\Winner2
-        // second: the conflict must override the pending fixable candidate.
+        // the not-autoload-reachable App\Sub\AlsoGone FIRST and the shadowed
+        // App\Winner2 second: the conflict still wins over the target it shares
+        // with a class that would otherwise keep the require merely load-bearing.
         self::assertSame(
             [
                 [
@@ -263,19 +236,20 @@ final class AnalyzerTest extends TestCase
 
         // Silent by design: MixedGlobal (declares an uncovered class, memoized
         // null on the second require), the nonexistent DoesNotExist.php target
-        // (no declarations, must not warn or crash), and the two side-effect
-        // files below.
+        // (no declarations, must not warn or crash), and the side-effect files
+        // below.
         self::assertSame([], $result['unresolved']);
 
-        // WithFunction and WithSideEffect each round-trip their class, but the
-        // files also declare a function / a constant + top-level statement.
-        // Autoload would not reproduce those, so the requires are load-bearing
-        // and must appear in no section.
+        // MixedMissing round-trips App\MixedMissing but App\Sub\Gone derives a
+        // missing path; WithFunction and WithSideEffect round-trip their class
+        // but also declare a function / a constant + top-level statement. In
+        // every case autoload would not reproduce everything the target
+        // provides, so the requires are load-bearing and appear in no section.
         $allTargets = array_merge(
             array_column($result['redundant'], 'target'),
-            array_column($result['fixable'], 'target'),
             array_column($result['conflicting'], 'target')
         );
+        self::assertNotContains('src/MixedMissing.php', $allTargets);
         self::assertNotContains('src/WithFunction.php', $allTargets);
         self::assertNotContains('src/WithSideEffect.php', $allTargets);
     }

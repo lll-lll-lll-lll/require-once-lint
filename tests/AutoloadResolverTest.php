@@ -18,7 +18,6 @@ use Depone\Internal\Resolver\AutoloadResolver;
  *   loading rules from autoload-dev
  *   stripping a leading backslash
  *   returning null when composer.json is missing
- *   resolveVerbose: matched prefix / expected path / resolved path triples
  *
  * Fixture: tests/Fixture/AutoloadResolverProject/
  */
@@ -168,110 +167,6 @@ final class AutoloadResolverTest extends TestCase
         // The autoload-dev PSR-4 rule (App\Tests\ -> dev-tests/) should also work.
         $result = self::$resolver->resolve('App\Tests\FooTest');
         self::assertSame(self::$root . '/dev-tests/FooTest.php', $result);
-    }
-
-    // -------------------------------------------------------------------------
-    // resolveVerbose
-    // -------------------------------------------------------------------------
-
-    public function testResolveVerbosePsr4RoundTrip(): void
-    {
-        self::assertSame(
-            [
-                'prefix' => 'App\\',
-                'expectedPath' => self::$root . '/src/Foo.php',
-                'resolved' => self::$root . '/src/Foo.php',
-            ],
-            self::$resolver->resolveVerbose('App\Foo')
-        );
-    }
-
-    public function testResolveVerbosePsr4MissingFileKeepsExpectedPath(): void
-    {
-        // The rule matches but the derived file does not exist: the expected
-        // path is what a fixable_require_once detail is built from.
-        self::assertSame(
-            [
-                'prefix' => 'App\\',
-                'expectedPath' => self::$root . '/src/DoesNotExist.php',
-                'resolved' => null,
-            ],
-            self::$resolver->resolveVerbose('App\DoesNotExist')
-        );
-    }
-
-    public function testResolveVerboseLongerPrefixWinsForExpectedPath(): void
-    {
-        self::assertSame(
-            [
-                'prefix' => 'App\Specific\\',
-                'expectedPath' => self::$root . '/src/specific/SpecificFoo.php',
-                'resolved' => self::$root . '/src/specific/SpecificFoo.php',
-            ],
-            self::$resolver->resolveVerbose('App\Specific\SpecificFoo')
-        );
-    }
-
-    public function testResolveVerboseMultiDirExpectedPathUsesFirstDirectory(): void
-    {
-        // Multi\FromB actually resolves from multi-b/, but the expected path is
-        // always derived from the rule's first directory. The two may diverge;
-        // resolved is the ground truth, expectedPath is the canonical location.
-        self::assertSame(
-            [
-                'prefix' => 'Multi\\',
-                'expectedPath' => self::$root . '/multi-a/FromB.php',
-                'resolved' => self::$root . '/multi-b/FromB.php',
-            ],
-            self::$resolver->resolveVerbose('Multi\FromB')
-        );
-    }
-
-    public function testResolveVerbosePsr0RoundTrip(): void
-    {
-        // PSR-0: underscores in the class name map to directory separators.
-        self::assertSame(
-            [
-                'prefix' => 'Legacy_',
-                'expectedPath' => self::$root . '/legacy/Legacy/Component.php',
-                'resolved' => self::$root . '/legacy/Legacy/Component.php',
-            ],
-            self::$resolver->resolveVerbose('Legacy_Component')
-        );
-    }
-
-    public function testResolveVerbosePsr0MissingFileKeepsExpectedPath(): void
-    {
-        self::assertSame(
-            [
-                'prefix' => 'Legacy_',
-                'expectedPath' => self::$root . '/legacy/Legacy/Missing/Widget.php',
-                'resolved' => null,
-            ],
-            self::$resolver->resolveVerbose('Legacy_Missing_Widget')
-        );
-    }
-
-    public function testResolveVerboseNoMatchingRuleIsAllNull(): void
-    {
-        self::assertSame(
-            ['prefix' => null, 'expectedPath' => null, 'resolved' => null],
-            self::$resolver->resolveVerbose('Unknown\SomeClass')
-        );
-    }
-
-    public function testResolveVerboseClassmapResolvesWithoutPrefixOrExpectedPath(): void
-    {
-        // A classmap-only class resolves, but no PSR rule matched: there is no
-        // prefix and no canonical expected path to report.
-        self::assertSame(
-            [
-                'prefix' => null,
-                'expectedPath' => null,
-                'resolved' => self::$root . '/classmap/MappedClass.php',
-            ],
-            self::$resolver->resolveVerbose('Mapped\MappedClass')
-        );
     }
 
     // -------------------------------------------------------------------------

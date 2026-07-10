@@ -9,19 +9,31 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** dropped the `fixable_require_once` section. Whether a class's
+  PSR-4/PSR-0 rule derives a path that actually exists is autoload-config
+  validation — already covered by `composer dump-autoload --strict-psr` — and
+  drifts from depone's one job: relating each `require_once` to what autoload
+  actually loads. A require whose target is not autoload-reachable is now left
+  unreported (it is load-bearing today), the same as any other non-autoloadable
+  target. depone now reports two outcomes for a resolved `require_once`:
+  `redundant` (provably safe to delete) and `conflicting` (loads a shadowed
+  copy).
+
 ### Changed
 
 - **Breaking:** exit codes now distinguish findings from failures, so depone
-  can gate CI. `0` = the analysis ran and found no redundant, fixable, or
-  conflicting require; `1` = at least one was reported (previously `0`);
+  can gate CI. `0` = the analysis ran and found no redundant or conflicting
+  require; `1` = at least one was reported (previously `0`);
   `2` = the analysis could not run, including invalid invocations
   (previously `1`). `unresolved_include_require` entries and `--trace` output
   never affect the exit code. To keep a CI step green on findings, use
   `vendor/bin/depone || [ $? -ne 2 ]` (ignores findings but still fails when
   the analysis could not run); a plain `|| true` also masks execution errors.
-- Internal: the actionable finding categories (`redundant`, `fixable`,
-  `conflicting`) are now defined once and shared by the exit-code gate and the
-  summary output. No behavior change.
+- Internal: the actionable finding categories (`redundant`, `conflicting`) are
+  now defined once and shared by the exit-code gate and the summary output.
+  No behavior change.
 
 ## [0.2.1] - 2026-07-05
 

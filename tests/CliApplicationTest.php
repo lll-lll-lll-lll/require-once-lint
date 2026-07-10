@@ -108,9 +108,9 @@ final class CliApplicationTest extends TestCase
 
     public function testExitsZeroWhenOnlyUnresolvedRequiresExist(): void
     {
-        // CleanProject has no redundant/fixable/conflicting require, only a
-        // dynamic include. unresolved entries are reported but deliberately
-        // never affect the exit code.
+        // CleanProject has no redundant/conflicting require, only a dynamic
+        // include. unresolved entries are reported but deliberately never
+        // affect the exit code.
         $cleanRoot = realpath(__DIR__ . '/Fixture/CleanProject');
         self::assertNotFalse($cleanRoot, 'CleanProject fixture not found');
 
@@ -118,7 +118,6 @@ final class CliApplicationTest extends TestCase
         self::assertSame(0, $r['exitCode']);
         self::assertSame('', $r['stderr']);
         self::assertStringContainsString('redundant_require_once=0', $r['stdout']);
-        self::assertStringContainsString('fixable_require_once=0', $r['stdout']);
         self::assertStringContainsString('conflicting_require_once=0', $r['stdout']);
         self::assertStringContainsString('unresolved_include_require=1', $r['stdout']);
     }
@@ -128,9 +127,8 @@ final class CliApplicationTest extends TestCase
         $r = $this->runApp();
         self::assertStringContainsString('redundant_require_once=', $r['stdout']);
         self::assertStringContainsString('unresolved_include_require=', $r['stdout']);
-        // The classification sections are part of the output contract and must
+        // The classification section is part of the output contract and must
         // be printed with a zero count even when nothing is found.
-        self::assertStringContainsString('fixable_require_once=0', $r['stdout']);
         self::assertStringContainsString('conflicting_require_once=0', $r['stdout']);
     }
 
@@ -152,10 +150,10 @@ final class CliApplicationTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // require_once classification (fixable / conflicting)
+    // require_once classification (conflicting)
     // -------------------------------------------------------------------------
 
-    public function testTextOutputClassifiesFixableAndConflictingRequires(): void
+    public function testTextOutputClassifiesConflictingRequires(): void
     {
         $r = $this->runAppInRoot(self::$classificationFixtureRoot);
         self::assertSame(1, $r['exitCode']);
@@ -164,13 +162,6 @@ final class CliApplicationTest extends TestCase
         self::assertStringContainsString('redundant_require_once=1', $r['stdout']);
         self::assertStringContainsString('public/index.php:5 => src/Reachable.php', $r['stdout']);
 
-        self::assertStringContainsString('fixable_require_once=1', $r['stdout']);
-        self::assertStringContainsString(
-            'src/WrongPath.php  (App\Sub\Missing would load from src/Sub/Missing.php'
-                . ' — fix autoload, then remove this require)',
-            $r['stdout']
-        );
-
         self::assertStringContainsString('conflicting_require_once=1', $r['stdout']);
         self::assertStringContainsString(
             'src/Dup.php  (App\Dup is autoloaded from classmap/Dup.php'
@@ -178,7 +169,9 @@ final class CliApplicationTest extends TestCase
             $r['stdout']
         );
 
-        // The "needed" require to src/helper.php (no declared type) is unreported.
+        // src/WrongPath.php (App\Sub\Missing derives a missing path) and
+        // src/helper.php (no declared type) are load-bearing: both unreported.
+        self::assertStringNotContainsString('src/WrongPath.php', $r['stdout']);
         self::assertStringNotContainsString('src/helper.php', $r['stdout']);
     }
 
