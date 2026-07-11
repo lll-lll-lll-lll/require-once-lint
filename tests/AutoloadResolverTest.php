@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Depone\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Depone\Internal\Exception\AnalyzerException;
 use Depone\Internal\Resolver\AutoloadResolver;
 
 /**
@@ -204,6 +205,28 @@ final class AutoloadResolverTest extends TestCase
         self::assertSame($path . '/vendor/acme/lib/src/Thing.php', $resolver->resolve('Acme\Lib\Thing'));
         // A root PSR-4 rule from the dumped map still resolves.
         self::assertSame($path . '/src/Widget.php', $resolver->resolve('App\Widget'));
+    }
+
+    public function testCorruptDumpedMapSurfacesAsAnalyzerException(): void
+    {
+        // Loading a dumped map executes it; a truncated file (e.g. an
+        // interrupted `composer dump-autoload`) must surface as a clean
+        // analysis error, not an uncaught ParseError.
+        $root = sys_get_temp_dir() . '/depone_corrupt_' . bin2hex(random_bytes(6));
+        mkdir($root . '/vendor/composer', 0777, true);
+        file_put_contents($root . '/vendor/composer/autoload_psr4.php', "<?php\nreturn array(\n");
+
+        try {
+            new AutoloadResolver($root);
+            self::fail('Expected AnalyzerException');
+        } catch (AnalyzerException $e) {
+            self::assertStringContainsString('autoload_psr4.php', $e->getMessage());
+        } finally {
+            unlink($root . '/vendor/composer/autoload_psr4.php');
+            rmdir($root . '/vendor/composer');
+            rmdir($root . '/vendor');
+            rmdir($root);
+        }
     }
 
     // -------------------------------------------------------------------------

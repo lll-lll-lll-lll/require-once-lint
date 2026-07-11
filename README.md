@@ -14,7 +14,8 @@ are dead weight, some are hiding a broken autoload rule, and some load a
 
 `depone` reads every PHP file in your repository, statically resolves each
 `require_once` target, and tells those cases apart — in one command, with no
-configuration, and without ever rewriting your code:
+configuration. It reports by default and rewrites nothing unless you opt in with
+`--fix`, which deletes only the lines it can prove are safe:
 
 - **redundant** — the target is already autoloaded; deleting the require is
   provably safe
@@ -152,7 +153,41 @@ vendor/bin/depone --format json
 Redundant rows carry `file`, `line`, and `target`; conflicting rows add a
 `detail` string. `--format json` also applies to `--trace`, emitting the trace
 as a JSON object (`target`, `directCallers`, `entrypoints`, `paths`,
-`truncated`).
+`truncated`), and to `--fix`, emitting the fix report as a JSON object
+(`removed`, `skipped`). Strings that are not valid UTF-8 (expressions lifted
+from legacy non-UTF-8 sources) have their invalid bytes replaced with U+FFFD
+so the report always survives intact.
+
+## Deleting redundant requires (`--fix`)
+
+`--fix` deletes the provably-`redundant` `require_once` statements in place. It
+only ever removes what the report calls `redundant` — `conflicting` and
+`unresolved` requires are hazards or unknowns and are never touched.
+
+```sh
+vendor/bin/depone --fix
+```
+
+```
+fixed_require_once=2
+public/index.php:4 => src/Greeting.php
+public/index.php:5 => src/Legacy/Mailer.php
+
+skipped_require_once=0
+```
+
+Removal is deliberately conservative: a statement is deleted only when it can be
+located unambiguously, it is a standalone statement, and it sits on its own
+line(s) — nothing but whitespace before the `require_once` and after the
+terminating `;`. A require that shares a line with other code or carries a
+trailing comment is left in place, and so is one whose removal would change the
+surrounding code rather than delete a no-op: the brace-less body of an
+`if`/`else`/loop (deleting it would rebind the next statement as the body) or an
+operand of a larger expression such as `return require_once ...`. All of these
+are listed under `skipped_require_once` for you to handle by hand, as is any
+file that cannot be read or written back. After editing, each file is re-parsed
+and only written back if it still parses. Run `--fix` on a clean working tree so
+the deletions are easy to review and revert.
 
 ## Exit codes
 
@@ -164,8 +199,8 @@ as a JSON object (`target`, `directCallers`, `entrypoints`, `paths`,
 
 `unresolved_include_require` entries are reported but never affect the exit
 code: legacy dynamic includes are often legitimate, and failing on them would
-turn the first run red on almost every legacy project. `--trace` output is
-informational and always exits `0` unless the analysis itself fails.
+turn the first run red on almost every legacy project. `--trace` and `--fix`
+always exit `0` unless the analysis itself fails.
 
 ## Using in CI
 
@@ -193,9 +228,12 @@ too — the step would stay green even when no analysis happened.
    (`vendor/composer/autoload_*.php` present), depone uses those generated maps:
    they merge the root project with every installed dependency exactly as
    Composer resolves them at runtime, so a class provided by a dependency is
-   recognized too. Without a dumped autoloader it falls back to reading the root
-   `composer.json` directly (`psr-4`, `psr-0`, `classmap`, and `files`,
-   including their `autoload-dev` counterparts).
+   recognized too. Note that reading the dumped maps executes those generated
+   PHP files (nothing else from the repository is ever executed); a corrupt or
+   truncated map is reported as a clean analysis error. Without a dumped
+   autoloader depone falls back to reading the root `composer.json` directly
+   (`psr-4`, `psr-0`, `classmap`, and `files`, including their `autoload-dev`
+   counterparts).
 2. Finds every require/include (excluding `vendor/` and `.git/`) by tokenizing
    each file with `token_get_all()`, and evaluates the path expression with a
    small static evaluator: string literals, concatenation, `__DIR__`/`__FILE__`,
@@ -225,7 +263,8 @@ problem rather than an AST transformation, which is why it lives as a small
 standalone tool. `composer dump-autoload
 --strict-psr`/`--strict-ambiguous` validates the autoload config on its own,
 but never parses source-level `require_once` statements, so it cannot make this
-connection. depone is also report-only by design and never rewrites your code.
+connection. depone reports by default; `--fix` opts in to deleting only the
+provably-redundant requires, never the conflicting or unresolved ones.
 
 ## Scope and stability
 

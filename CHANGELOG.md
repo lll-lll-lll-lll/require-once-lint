@@ -11,6 +11,16 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ### Added
 
+- `--fix` deletes the provably-`redundant` `require_once` statements in place,
+  never touching `conflicting` or `unresolved` ones. Removal is conservative: a
+  statement is deleted only when it can be located unambiguously, is a
+  standalone statement (not the brace-less body of a control structure or an
+  operand of a larger expression — removing those would rewire the surrounding
+  code, not delete a no-op), and stands alone on its line(s). Anything else —
+  including a require sharing a line with other code or a trailing comment, and
+  files that cannot be read or written — is reported under
+  `skipped_require_once` for manual handling. Each edited file is re-parsed and
+  written back only if it still parses.
 - Dependency-aware autoload resolution. When Composer has dumped its autoloader
   (`vendor/composer/autoload_*.php` present), depone classifies each
   `require_once` against the merged root + dependency autoload maps, exactly as
@@ -19,9 +29,10 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
   dependency's eager `autoload.files` entry is reported as `redundant`. Without a
   dumped autoloader depone falls back to reading the root `composer.json`, as
   before.
-- `--format json` emits the report (and `--trace` output) as JSON for machine
-  consumption — CI dashboards, editors, `jq`. Exit codes are unchanged and
-  `text` remains the default format.
+- `--format json` emits the report (and `--trace` / `--fix` output) as JSON for
+  machine consumption — CI dashboards, editors, `jq`. Invalid UTF-8 in analyzed
+  sources is substituted with U+FFFD instead of aborting the encode. Exit codes
+  are unchanged and `text` remains the default format.
 
 ## [0.3.0] - 2026-07-11
 

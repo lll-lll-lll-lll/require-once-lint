@@ -173,6 +173,15 @@ final class DeclaredClassExtractor
     }
 
     /**
+     * Reports whether the source parses as valid PHP. Used as a safety guard
+     * before writing back a file that a caller has edited.
+     */
+    public function isParseable(string $content): bool
+    {
+        return $this->parse($content) !== null;
+    }
+
+    /**
      * Parses source into a statement list, or null when it cannot be parsed.
      *
      * @return Node\Stmt[]|null

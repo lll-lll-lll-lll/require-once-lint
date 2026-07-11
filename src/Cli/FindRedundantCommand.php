@@ -7,6 +7,7 @@ namespace Depone\Internal\Cli;
 use Depone\Internal\Core\Analyzer;
 use Depone\Internal\Core\DependencyGraph;
 use Depone\Internal\Core\OutputFormatter as InternalOutputFormatter;
+use Depone\Internal\Core\RedundantRequireRemover;
 use Depone\Internal\Exception\AnalyzerException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -45,7 +46,8 @@ final class FindRedundantCommand extends Command
             ->setName(self::NAME)
             ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, conflicting).')
             ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?')
-            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or json.', self::FORMAT_TEXT);
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or json.', self::FORMAT_TEXT)
+            ->addOption('fix', null, InputOption::VALUE_NONE, 'Delete the provably-redundant require_once statements in place (never touches conflicting or unresolved).');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -69,11 +71,23 @@ final class FindRedundantCommand extends Command
         }
         $asJson = $format === self::FORMAT_JSON;
 
+        $fix = $input->getOption('fix') === true;
+
         try {
             $analyzer = new Analyzer($repoRoot);
             $result = $analyzer->run();
 
             $formatter = new InternalOutputFormatter();
+
+            if ($fix) {
+                // --fix acts on the redundant findings; it never runs a trace.
+                $report = (new RedundantRequireRemover($repoRoot))->fix($result['redundant']);
+                $this->writeRaw($output, $asJson
+                    ? $formatter->formatFixReportJson($report)
+                    : $formatter->formatFixReport($report));
+                return self::EXIT_OK;
+            }
+
             if ($traceTarget !== null) {
                 // Trace output is informational and never fails the build.
                 $graph = new DependencyGraph($result['edges'], $repoRoot);

@@ -38,8 +38,13 @@ final class AutoloadResolver
         $this->repoRoot = rtrim($repoRoot, '/');
         // Prefer Composer's dumped autoloader (root + dependencies, merged as
         // Composer sees them at runtime); fall back to reading composer.json
-        // directly when autoload has not been generated.
-        if (!$this->loadGeneratedAutoload()) {
+        // directly when autoload has not been generated. locate() is the
+        // single dumped-or-not decision shared with Analyzer, so class
+        // resolution and eager files always come from the same source.
+        $generated = GeneratedAutoload::locate($this->repoRoot);
+        if ($generated !== null) {
+            $this->loadGeneratedAutoload($generated);
+        } else {
             $this->loadComposerAutoload();
         }
     }
@@ -71,82 +76,26 @@ final class AutoloadResolver
     }
 
     /**
-     * Loads Composer's dumped autoload maps (`vendor/composer/autoload_*.php`).
+     * Loads Composer's dumped autoload maps.
      *
      * These generated files already merge the root project and every installed
      * dependency, and hold pre-computed absolute paths, so they are the most
      * faithful picture of what actually loads at runtime — including
      * dependency-provided classes and any `exclude-from-classmap` Composer
      * applied when dumping.
-     *
-     * @return bool True when a dumped autoloader was found and loaded; false
-     *              when none exists (caller should fall back to composer.json).
      */
-    private function loadGeneratedAutoload(): bool
+    private function loadGeneratedAutoload(GeneratedAutoload $generated): void
     {
-        $dir = $this->repoRoot . '/vendor/composer';
-        $psr4File = $dir . '/autoload_psr4.php';
+        $this->psr4 = $generated->psr4();
+        $this->psr0 = $generated->psr0();
 
-        // Composer always generates the PSR-4 map alongside the others. Its
-        // absence means autoload has not been dumped: signal a fallback.
-        if (!is_file($psr4File)) {
-            return false;
+        foreach ($generated->classmap() as $class => $file) {
+            // Composer already applied first-wins when dumping, but keep the
+            // guard so resolve()'s classmap precedence stays authoritative.
+            $this->classmap[$class] ??= $file;
         }
 
-        foreach ($this->requireMap($psr4File) as $prefix => $dirs) {
-            if (!is_string($prefix)) {
-                continue;
-            }
-            foreach ((array) $dirs as $path) {
-                if (is_string($path)) {
-                    $this->psr4[$prefix][] = rtrim($path, '/');
-                }
-            }
-        }
-
-        $psr0File = $dir . '/autoload_namespaces.php';
-        if (is_file($psr0File)) {
-            foreach ($this->requireMap($psr0File) as $prefix => $dirs) {
-                if (!is_string($prefix)) {
-                    continue;
-                }
-                foreach ((array) $dirs as $path) {
-                    if (is_string($path)) {
-                        $this->psr0[$prefix][] = rtrim($path, '/');
-                    }
-                }
-            }
-        }
-
-        $classmapFile = $dir . '/autoload_classmap.php';
-        if (is_file($classmapFile)) {
-            foreach ($this->requireMap($classmapFile) as $class => $file) {
-                // Composer already applied first-wins when dumping, but keep the
-                // guard so resolve()'s classmap precedence stays authoritative.
-                if (is_string($class) && is_string($file)) {
-                    $this->classmap[$class] ??= $file;
-                }
-            }
-        }
-
-        // Sort longest prefixes first so more specific matches win.
-        uksort($this->psr4, fn ($a, $b) => strlen($b) - strlen($a));
-        uksort($this->psr0, fn ($a, $b) => strlen($b) - strlen($a));
-
-        return true;
-    }
-
-    /**
-     * Includes a Composer-generated autoload map in an isolated scope — so its
-     * `$vendorDir`/`$baseDir` locals never leak — and always returns an array.
-     *
-     * @return array<mixed>
-     */
-    private function requireMap(string $file): array
-    {
-        $map = (static fn (): mixed => require $file)();
-
-        return is_array($map) ? $map : [];
+        $this->sortPrefixesLongestFirst();
     }
 
     /**
@@ -225,7 +174,14 @@ final class AutoloadResolver
             }
         }
 
-        // Sort longest prefixes first so more specific matches win.
+        $this->sortPrefixesLongestFirst();
+    }
+
+    /**
+     * Sorts the PSR-4/PSR-0 prefixes longest first so more specific matches win.
+     */
+    private function sortPrefixesLongestFirst(): void
+    {
         uksort($this->psr4, fn ($a, $b) => strlen($b) - strlen($a));
         uksort($this->psr0, fn ($a, $b) => strlen($b) - strlen($a));
     }

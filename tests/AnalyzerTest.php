@@ -426,6 +426,62 @@ final class AnalyzerTest extends TestCase
         );
     }
 
+    public function testEagerFilesResolveThroughASymlinkedRepoRoot(): void
+    {
+        // The dumped autoload_files.php holds realpath-based entries (derived
+        // from __DIR__), while require targets under a symlinked repo root are
+        // lexical symlink paths. The eager-file match must bridge the two,
+        // like sameRealFile() does for conflicts.
+        $real = $this->getFixturePath('VendorAutoloadProject');
+        $link = sys_get_temp_dir() . '/depone_symlink_' . bin2hex(random_bytes(6));
+        self::assertTrue(symlink($real, $link));
+
+        try {
+            $result = (new Analyzer($link))->run();
+
+            $targets = array_column($result['redundant'], 'target');
+            self::assertContains('src/eager.php', $targets);
+            self::assertContains('vendor/acme/lib/bootstrap.php', $targets);
+        } finally {
+            unlink($link);
+        }
+    }
+
+    public function testDumpedAutoloaderIsTheSingleSourceForEagerFiles(): void
+    {
+        // With a dumped autoloader present but no autoload_files.php, Composer
+        // eagerly loads nothing at runtime — a `files` entry added to
+        // composer.json after the dump must NOT be treated as eager, or --fix
+        // would delete a require the runtime still needs. Classes and eager
+        // files must come from the same source, never a mix.
+        $root = sys_get_temp_dir() . '/depone_sentinel_' . bin2hex(random_bytes(6));
+        mkdir($root . '/vendor/composer', 0777, true);
+        file_put_contents(
+            $root . '/composer.json',
+            '{"autoload":{"files":["boot.php"]}}'
+        );
+        file_put_contents($root . '/boot.php', "<?php\ndefine('BOOTED', true);\n");
+        file_put_contents($root . '/index.php', "<?php\nrequire_once __DIR__ . '/boot.php';\n");
+        file_put_contents(
+            $root . '/vendor/composer/autoload_psr4.php',
+            "<?php\nreturn array();\n"
+        );
+
+        try {
+            $result = (new Analyzer($root))->run();
+
+            self::assertSame([], $result['redundant']);
+        } finally {
+            unlink($root . '/vendor/composer/autoload_psr4.php');
+            unlink($root . '/composer.json');
+            unlink($root . '/boot.php');
+            unlink($root . '/index.php');
+            rmdir($root . '/vendor/composer');
+            rmdir($root . '/vendor');
+            rmdir($root);
+        }
+    }
+
     private function getFixturePath(string $name): string
     {
         $path = realpath(__DIR__ . '/Fixture/' . $name);

@@ -10,6 +10,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Depone\Internal\Exception\AnalyzerException;
 use Depone\Internal\Resolver\AutoloadResolver;
+use Depone\Internal\Resolver\GeneratedAutoload;
 use Depone\Internal\Tokenizer\DeclaredClassExtractor;
 use Depone\Internal\Tokenizer\IncludeExprParser;
 use Depone\Internal\Tokenizer\PathHelper;
@@ -190,7 +191,7 @@ final class Analyzer
             // Eager `autoload.files` entries load on Composer init, before
             // any code runs, so this require is a no-op no matter what the
             // target declares.
-            $classification = isset($eagerFiles[$targetAbs])
+            $classification = $this->isEagerFile($eagerFiles, $targetAbs)
                 ? ['category' => 'redundant', 'detail' => null]
                 : $this->classifyRequireTarget($targetAbs, $resolver, $classExtractor);
 
@@ -351,16 +352,19 @@ final class Analyzer
      */
     private function collectEagerFiles(): array
     {
+        // Prefer Composer's dumped files map (root + dependencies, merged as
+        // Composer loads them at runtime). locate() is the single dumped-or-not
+        // decision shared with AutoloadResolver, so eager files and class
+        // resolution always come from the same source — and a dumped project
+        // whose composer.json was removed still analyzes.
+        $generated = GeneratedAutoload::locate($this->repoRoot);
+        if ($generated !== null) {
+            return $this->collectGeneratedEagerFiles($generated);
+        }
+
         $composerPath = $this->repoRoot . '/composer.json';
         if (!is_file($composerPath)) {
             throw new AnalyzerException("Failed to read composer.json");
-        }
-
-        // Prefer Composer's dumped files map (root + dependencies, merged as
-        // Composer loads them at runtime) when present.
-        $generatedFiles = $this->repoRoot . '/vendor/composer/autoload_files.php';
-        if (is_file($generatedFiles)) {
-            return $this->collectGeneratedEagerFiles($generatedFiles);
         }
 
         $json = file_get_contents($composerPath);
@@ -391,7 +395,7 @@ final class Analyzer
                 }
                 $absolute = PathHelper::normalize($this->repoRoot . '/' . ltrim($entry, '/'));
                 if (is_file($absolute)) {
-                    $files[$absolute] = true;
+                    $this->addEagerFile($files, $absolute);
                 }
             }
         }
@@ -400,31 +404,59 @@ final class Analyzer
     }
 
     /**
-     * Reads Composer's dumped `autoload_files.php` (a map of hash => absolute
-     * file path) in an isolated scope, so its `$vendorDir`/`$baseDir` locals
-     * never leak.
+     * Collects the eager files of a dumped autoloader.
      *
      * @return array<string, true> Associative array keyed by absolute file path
+     * @throws AnalyzerException
      */
-    private function collectGeneratedEagerFiles(string $generatedFile): array
+    private function collectGeneratedEagerFiles(GeneratedAutoload $generated): array
     {
-        $map = (static fn (): mixed => require $generatedFile)();
-        if (!is_array($map)) {
-            return [];
-        }
-
         $files = [];
-        foreach ($map as $path) {
-            if (!is_string($path)) {
-                continue;
-            }
+        foreach ($generated->eagerFiles() as $path) {
             $absolute = PathHelper::normalize($path);
             if (is_file($absolute)) {
-                $files[$absolute] = true;
+                $this->addEagerFile($files, $absolute);
             }
         }
 
         return $files;
+    }
+
+    /**
+     * Keys an eager file by both its lexical path and its realpath. Path
+     * comparison elsewhere is lexical, but the dumped map holds
+     * `__DIR__`-derived (realpath-based) entries, so the same file spells
+     * differently on the two sides when the repo root or a vendor package is
+     * reached through a symlink — the same hazard {@see sameRealFile()}
+     * covers for conflicts.
+     *
+     * @param array<string, true> $files
+     */
+    private function addEagerFile(array &$files, string $absolute): void
+    {
+        $files[$absolute] = true;
+        $real = realpath($absolute);
+        if ($real !== false) {
+            $files[$real] = true;
+        }
+    }
+
+    /**
+     * Reports whether the require target is an eager `files` entry, falling
+     * back to realpath so a symlinked repo root still matches the
+     * realpath-based dumped entries. This only ever upgrades a miss.
+     *
+     * @param array<string, true> $eagerFiles
+     */
+    private function isEagerFile(array $eagerFiles, string $targetAbs): bool
+    {
+        if (isset($eagerFiles[$targetAbs])) {
+            return true;
+        }
+
+        $real = realpath($targetAbs);
+
+        return $real !== false && isset($eagerFiles[$real]);
     }
 
     /**
