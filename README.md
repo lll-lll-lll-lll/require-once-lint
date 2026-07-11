@@ -189,8 +189,13 @@ too — the step would stay green even when no analysis happened.
 
 ## How it works
 
-1. Reads the autoload rules from `composer.json` (`psr-4`, `psr-0`, `classmap`,
-   and `files`, including their `autoload-dev` counterparts).
+1. Loads the autoload rules. When Composer has dumped its autoloader
+   (`vendor/composer/autoload_*.php` present), depone uses those generated maps:
+   they merge the root project with every installed dependency exactly as
+   Composer resolves them at runtime, so a class provided by a dependency is
+   recognized too. Without a dumped autoloader it falls back to reading the root
+   `composer.json` directly (`psr-4`, `psr-0`, `classmap`, and `files`,
+   including their `autoload-dev` counterparts).
 2. Finds every require/include (excluding `vendor/` and `.git/`) by tokenizing
    each file with `token_get_all()`, and evaluates the path expression with a
    small static evaluator: string literals, concatenation, `__DIR__`/`__FILE__`,

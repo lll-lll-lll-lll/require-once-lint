@@ -360,6 +360,57 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    public function testConsidersDumpedDependencyAutoload(): void
+    {
+        // When Composer has dumped its autoloader, classification must consult
+        // the merged root+dependency maps, not just the root composer.json:
+        //   - legacy/DepShadow.php declares Acme\Lib\Thing, which the dependency
+        //     (vendor/acme/lib) autoloads from its own PSR-4 rule → conflicting,
+        //     invisible without reading the dumped vendor autoload.
+        //   - vendor/acme/lib/bootstrap.php is a dependency autoload.files entry
+        //     (in the dumped autoload_files.php) → redundant.
+        //   - src/Widget.php round-trips via the dumped PSR-4 map, and
+        //     src/eager.php is the root files entry → both redundant.
+        $projectRoot = $this->getFixturePath('VendorAutoloadProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertSame(
+            [
+                [
+                    'file' => 'public/index.php',
+                    'line' => 5,
+                    'target' => 'src/Widget.php',
+                ],
+                [
+                    'file' => 'public/index.php',
+                    'line' => 7,
+                    'target' => 'src/eager.php',
+                ],
+                [
+                    'file' => 'public/index.php',
+                    'line' => 8,
+                    'target' => 'vendor/acme/lib/bootstrap.php',
+                ],
+            ],
+            $result['redundant']
+        );
+
+        self::assertSame(
+            [
+                [
+                    'file' => 'public/index.php',
+                    'line' => 6,
+                    'target' => 'legacy/DepShadow.php',
+                    'detail' => 'Acme\Lib\Thing is autoloaded from vendor/acme/lib/src/Thing.php'
+                        . ' — this require loads a shadowed copy',
+                ],
+            ],
+            $result['conflicting']
+        );
+        self::assertSame([], $result['unresolved']);
+    }
+
     public function testActionableCategoriesConstantMatchesResultKeys(): void
     {
         $projectRoot = $this->getFixturePath('SampleProject');

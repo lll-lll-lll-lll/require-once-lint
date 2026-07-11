@@ -341,6 +341,11 @@ final class Analyzer
      * Composer loads these eagerly on initialization, so a require_once whose
      * target is one of them is redundant regardless of what the file declares.
      *
+     * When Composer has dumped its autoloader, the generated
+     * `vendor/composer/autoload_files.php` is used: it already merges the root
+     * project with every dependency's eager files, so a require of a
+     * dependency's bootstrap/function file is recognized as redundant too.
+     *
      * @return array<string, true> Associative array keyed by absolute file path
      * @throws AnalyzerException
      */
@@ -350,6 +355,14 @@ final class Analyzer
         if (!is_file($composerPath)) {
             throw new AnalyzerException("Failed to read composer.json");
         }
+
+        // Prefer Composer's dumped files map (root + dependencies, merged as
+        // Composer loads them at runtime) when present.
+        $generatedFiles = $this->repoRoot . '/vendor/composer/autoload_files.php';
+        if (is_file($generatedFiles)) {
+            return $this->collectGeneratedEagerFiles($generatedFiles);
+        }
+
         $json = file_get_contents($composerPath);
         if (!is_string($json)) {
             throw new AnalyzerException("Failed to read composer.json");
@@ -380,6 +393,34 @@ final class Analyzer
                 if (is_file($absolute)) {
                     $files[$absolute] = true;
                 }
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * Reads Composer's dumped `autoload_files.php` (a map of hash => absolute
+     * file path) in an isolated scope, so its `$vendorDir`/`$baseDir` locals
+     * never leak.
+     *
+     * @return array<string, true> Associative array keyed by absolute file path
+     */
+    private function collectGeneratedEagerFiles(string $generatedFile): array
+    {
+        $map = (static fn (): mixed => require $generatedFile)();
+        if (!is_array($map)) {
+            return [];
+        }
+
+        $files = [];
+        foreach ($map as $path) {
+            if (!is_string($path)) {
+                continue;
+            }
+            $absolute = PathHelper::normalize($path);
+            if (is_file($absolute)) {
+                $files[$absolute] = true;
             }
         }
 
