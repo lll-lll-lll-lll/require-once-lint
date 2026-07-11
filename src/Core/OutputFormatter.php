@@ -10,11 +10,33 @@ namespace Depone\Internal\Core;
  * @phpstan-import-type AnalysisResult from \Depone\Internal\Core\Analyzer
  * @phpstan-import-type TraceResult from \Depone\Internal\Core\DependencyGraph
  * @phpstan-import-type TracePath from \Depone\Internal\Core\DependencyGraph
+ * @phpstan-import-type FixReport from \Depone\Internal\Core\RedundantRequireRemover
  *
  * @internal
  */
 final class OutputFormatter
 {
+    /**
+     * Formats the result of a `--fix` run: the redundant require_once
+     * statements removed, and any that were left in place (with a reason).
+     *
+     * @param FixReport $report
+     */
+    public function formatFixReport(array $report): string
+    {
+        $output = 'fixed_require_once=' . count($report['removed']) . PHP_EOL;
+        foreach ($report['removed'] as $row) {
+            $output .= "{$row['file']}:{$row['line']} => {$row['target']}" . PHP_EOL;
+        }
+        $output .= PHP_EOL;
+        $output .= 'skipped_require_once=' . count($report['skipped']) . PHP_EOL;
+        foreach ($report['skipped'] as $row) {
+            $output .= "  {$row['file']}:{$row['line']} => {$row['target']}  ({$row['reason']})" . PHP_EOL;
+        }
+
+        return $output;
+    }
+
     /**
      * Formats a text summary of the analysis result.
      *

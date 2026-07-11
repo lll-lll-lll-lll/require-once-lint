@@ -11,6 +11,12 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ### Added
 
+- `--fix` deletes the provably-`redundant` `require_once` statements in place,
+  never touching `conflicting` or `unresolved` ones. Removal is conservative: a
+  statement is deleted only when it can be located unambiguously and stands alone
+  on its line(s); one that shares a line with other code or a trailing comment is
+  reported under `skipped_require_once` for manual handling. Each edited file is
+  re-parsed and written back only if it still parses.
 - Dependency-aware autoload resolution. When Composer has dumped its autoloader
   (`vendor/composer/autoload_*.php` present), depone classifies each
   `require_once` against the merged root + dependency autoload maps, exactly as

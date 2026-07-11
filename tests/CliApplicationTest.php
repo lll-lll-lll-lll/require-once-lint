@@ -234,6 +234,56 @@ final class CliApplicationTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // --fix
+    // -------------------------------------------------------------------------
+
+    public function testFixRemovesRedundantRequireInPlace(): void
+    {
+        // --fix mutates files, so run it against a throwaway project copy.
+        $root = sys_get_temp_dir() . '/depone_fix_' . bin2hex(random_bytes(6));
+        mkdir($root . '/src', 0777, true);
+        file_put_contents($root . '/composer.json', '{"autoload":{"psr-4":{"App\\\\":"src/"}}}');
+        file_put_contents(
+            $root . '/src/Foo.php',
+            "<?php\n\ndeclare(strict_types=1);\n\nnamespace App;\n\nclass Foo\n{\n}\n"
+        );
+        $entry = "<?php\n\ndeclare(strict_types=1);\n\n"
+            . "require_once __DIR__ . '/src/Foo.php';\n\n"
+            . "echo 'hi';\n";
+        file_put_contents($root . '/app.php', $entry);
+
+        try {
+            $r = $this->runAppInRoot($root, '--fix');
+
+            self::assertSame(0, $r['exitCode']);
+            self::assertSame('', $r['stderr']);
+            self::assertStringContainsString('fixed_require_once=1', $r['stdout']);
+            self::assertStringContainsString('app.php:5 => src/Foo.php', $r['stdout']);
+
+            // The redundant require is gone; the rest of the file is untouched.
+            $rewritten = file_get_contents($root . '/app.php');
+            self::assertIsString($rewritten);
+            self::assertStringNotContainsString('require_once', $rewritten);
+            self::assertStringContainsString("echo 'hi';", $rewritten);
+        } finally {
+            $this->removeTree($root);
+        }
+    }
+
+    private function removeTree(string $dir): void
+    {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            assert($item instanceof \SplFileInfo);
+            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+        }
+        rmdir($dir);
+    }
+
+    // -------------------------------------------------------------------------
     // Error cases
     // -------------------------------------------------------------------------
 

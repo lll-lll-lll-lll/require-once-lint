@@ -14,7 +14,8 @@ are dead weight, some are hiding a broken autoload rule, and some load a
 
 `depone` reads every PHP file in your repository, statically resolves each
 `require_once` target, and tells those cases apart — in one command, with no
-configuration, and without ever rewriting your code:
+configuration. It reports by default and rewrites nothing unless you opt in with
+`--fix`, which deletes only the lines it can prove are safe:
 
 - **redundant** — the target is already autoloaded; deleting the require is
   provably safe
@@ -154,6 +155,32 @@ Redundant rows carry `file`, `line`, and `target`; conflicting rows add a
 as a JSON object (`target`, `directCallers`, `entrypoints`, `paths`,
 `truncated`).
 
+## Deleting redundant requires (`--fix`)
+
+`--fix` deletes the provably-`redundant` `require_once` statements in place. It
+only ever removes what the report calls `redundant` — `conflicting` and
+`unresolved` requires are hazards or unknowns and are never touched.
+
+```sh
+vendor/bin/depone --fix
+```
+
+```
+fixed_require_once=2
+public/index.php:4 => src/Greeting.php
+public/index.php:5 => src/Legacy/Mailer.php
+
+skipped_require_once=0
+```
+
+Removal is deliberately conservative: a statement is deleted only when it can be
+located unambiguously and it sits on its own line(s) — nothing but whitespace
+before the `require_once` and after the terminating `;`. A require that shares a
+line with other code or carries a trailing comment is left in place and listed
+under `skipped_require_once` for you to handle by hand. After editing, each file
+is re-parsed and only written back if it still parses. Run `--fix` on a clean
+working tree so the deletions are easy to review and revert.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -164,8 +191,8 @@ as a JSON object (`target`, `directCallers`, `entrypoints`, `paths`,
 
 `unresolved_include_require` entries are reported but never affect the exit
 code: legacy dynamic includes are often legitimate, and failing on them would
-turn the first run red on almost every legacy project. `--trace` output is
-informational and always exits `0` unless the analysis itself fails.
+turn the first run red on almost every legacy project. `--trace` and `--fix`
+always exit `0` unless the analysis itself fails.
 
 ## Using in CI
 
@@ -225,7 +252,8 @@ problem rather than an AST transformation, which is why it lives as a small
 standalone tool. `composer dump-autoload
 --strict-psr`/`--strict-ambiguous` validates the autoload config on its own,
 but never parses source-level `require_once` statements, so it cannot make this
-connection. depone is also report-only by design and never rewrites your code.
+connection. depone reports by default; `--fix` opts in to deleting only the
+provably-redundant requires, never the conflicting or unresolved ones.
 
 ## Scope and stability
 

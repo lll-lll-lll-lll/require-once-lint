@@ -128,4 +128,24 @@ final class OutputFormatterTest extends TestCase
 
         self::assertSame($trace, $decoded);
     }
+
+    public function testFormatFixReportListsRemovedAndSkipped(): void
+    {
+        $report = [
+            'removed' => [
+                ['file' => 'public/index.php', 'line' => 5, 'target' => 'src/Foo.php'],
+            ],
+            'skipped' => [
+                ['file' => 'public/x.php', 'line' => 3, 'target' => 'src/Y.php', 'reason' => 'shares a line with other code or a comment'],
+            ],
+        ];
+
+        $expected = 'fixed_require_once=1' . PHP_EOL
+            . 'public/index.php:5 => src/Foo.php' . PHP_EOL
+            . PHP_EOL
+            . 'skipped_require_once=1' . PHP_EOL
+            . '  public/x.php:3 => src/Y.php  (shares a line with other code or a comment)' . PHP_EOL;
+
+        self::assertSame($expected, (new OutputFormatter())->formatFixReport($report));
+    }
 }
