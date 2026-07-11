@@ -9,6 +9,12 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Added
+
+- `--format json` emits the report (and `--trace` output) as JSON for machine
+  consumption — CI dashboards, editors, `jq`. Exit codes are unchanged and
+  `text` remains the default format.
+
 ## [0.3.0] - 2026-07-11
 
 ### Removed

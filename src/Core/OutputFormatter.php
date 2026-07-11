@@ -43,6 +43,50 @@ final class OutputFormatter
     }
 
     /**
+     * Formats the analysis result as JSON.
+     *
+     * Machine-readable counterpart of {@see formatSummary()}: it carries the
+     * same sections the text summary prints (redundant, conflicting,
+     * unresolved) and, like the text form, deliberately omits the informational
+     * `edges`. Each entry keeps the internal shape verbatim — redundant rows
+     * have no `detail`, conflicting rows do.
+     *
+     * @param AnalysisResult $result
+     */
+    public function formatSummaryJson(array $result): string
+    {
+        return $this->encode([
+            'redundant' => $result['redundant'],
+            'conflicting' => $result['conflicting'],
+            'unresolved' => $result['unresolved'],
+        ]);
+    }
+
+    /**
+     * Formats reverse-trace output as JSON.
+     *
+     * @param TraceResult $trace
+     */
+    public function formatReverseTraceJson(array $trace): string
+    {
+        return $this->encode($trace);
+    }
+
+    /**
+     * Encodes a payload as pretty-printed JSON with a trailing newline. Slashes
+     * and unicode are left unescaped so paths stay readable (src/Foo.php, not
+     * src\/Foo.php).
+     *
+     * @param array<string, mixed> $data
+     */
+    private function encode(array $data): string
+    {
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return ($json !== false ? $json : '{}') . PHP_EOL;
+    }
+
+    /**
      * Formats reverse-trace output.
      *
      * @param TraceResult $trace
