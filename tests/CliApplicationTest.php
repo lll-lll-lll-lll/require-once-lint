@@ -176,6 +176,51 @@ final class CliApplicationTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // --format json
+    // -------------------------------------------------------------------------
+
+    public function testJsonFormatOutput(): void
+    {
+        $r = $this->runApp('--format', 'json');
+
+        // JSON is only an output format: the exit code still reflects findings.
+        self::assertSame(1, $r['exitCode']);
+        self::assertSame('', $r['stderr']);
+
+        $decoded = json_decode($r['stdout'], true);
+        self::assertIsArray($decoded);
+        self::assertArrayHasKey('redundant', $decoded);
+        self::assertArrayHasKey('conflicting', $decoded);
+        self::assertArrayHasKey('unresolved', $decoded);
+        // edges is informational and excluded, matching the text summary.
+        self::assertArrayNotHasKey('edges', $decoded);
+
+        self::assertSame(
+            [['file' => 'public/index.php', 'line' => 5, 'target' => 'src/Bar.php']],
+            $decoded['redundant']
+        );
+    }
+
+    public function testJsonFormatTraceOutput(): void
+    {
+        $r = $this->runApp('--trace', 'src/Bar.php', '--format', 'json');
+
+        self::assertSame(0, $r['exitCode']);
+        $decoded = json_decode($r['stdout'], true);
+        self::assertIsArray($decoded);
+        self::assertSame('src/Bar.php', $decoded['target']);
+        self::assertSame(['public/index.php'], $decoded['directCallers']);
+    }
+
+    public function testUnknownFormatExitsTwo(): void
+    {
+        $r = $this->runApp('--format', 'xml');
+        self::assertSame(2, $r['exitCode']);
+        self::assertStringContainsString('Unknown format', $r['stderr']);
+        self::assertSame('', $r['stdout']);
+    }
+
+    // -------------------------------------------------------------------------
     // --trace (text)
     // -------------------------------------------------------------------------
 

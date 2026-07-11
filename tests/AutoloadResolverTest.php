@@ -188,6 +188,25 @@ final class AutoloadResolverTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // Dumped autoloader (vendor/composer/autoload_*.php)
+    // -------------------------------------------------------------------------
+
+    public function testResolvesDependencyClassFromDumpedAutoload(): void
+    {
+        // With a dumped autoloader present, PSR-4 rules of installed
+        // dependencies resolve too: Acme\Lib\Thing comes from the dependency's
+        // rule in vendor/composer/autoload_psr4.php, not the root composer.json.
+        $path = realpath(__DIR__ . '/Fixture/VendorAutoloadProject');
+        self::assertNotFalse($path, 'Fixture directory not found');
+
+        $resolver = new AutoloadResolver($path);
+
+        self::assertSame($path . '/vendor/acme/lib/src/Thing.php', $resolver->resolve('Acme\Lib\Thing'));
+        // A root PSR-4 rule from the dumped map still resolves.
+        self::assertSame($path . '/src/Widget.php', $resolver->resolve('App\Widget'));
+    }
+
+    // -------------------------------------------------------------------------
     // Missing composer.json
     // -------------------------------------------------------------------------
 

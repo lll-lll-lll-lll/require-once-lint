@@ -31,6 +31,9 @@ final class FindRedundantCommand extends Command
     private const MAX_PATHS = 20;
     private const MAX_DEPTH = 25;
 
+    private const FORMAT_TEXT = 'text';
+    private const FORMAT_JSON = 'json';
+
     public function __construct(private ?string $repoRoot = null)
     {
         parent::__construct();
@@ -41,7 +44,8 @@ final class FindRedundantCommand extends Command
         $this
             ->setName(self::NAME)
             ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, conflicting).')
-            ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?');
+            ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?')
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or json.', self::FORMAT_TEXT);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -57,6 +61,14 @@ final class FindRedundantCommand extends Command
         $traceOption = $input->getOption('trace');
         $traceTarget = is_string($traceOption) ? $traceOption : null;
 
+        $formatOption = $input->getOption('format');
+        $format = is_string($formatOption) ? $formatOption : self::FORMAT_TEXT;
+        if (!in_array($format, [self::FORMAT_TEXT, self::FORMAT_JSON], true)) {
+            $errOutput->writeln("Unknown format: {$format} (expected 'text' or 'json')");
+            return self::EXIT_ERROR;
+        }
+        $asJson = $format === self::FORMAT_JSON;
+
         try {
             $analyzer = new Analyzer($repoRoot);
             $result = $analyzer->run();
@@ -66,11 +78,15 @@ final class FindRedundantCommand extends Command
                 // Trace output is informational and never fails the build.
                 $graph = new DependencyGraph($result['edges'], $repoRoot);
                 $trace = $graph->buildReverseTrace($traceTarget, self::MAX_PATHS, self::MAX_DEPTH);
-                $this->writeRaw($output, $formatter->formatReverseTrace($trace));
+                $this->writeRaw($output, $asJson
+                    ? $formatter->formatReverseTraceJson($trace)
+                    : $formatter->formatReverseTrace($trace));
                 return self::EXIT_OK;
             }
 
-            $this->writeRaw($output, $formatter->formatSummary($result));
+            $this->writeRaw($output, $asJson
+                ? $formatter->formatSummaryJson($result)
+                : $formatter->formatSummary($result));
 
             // unresolved entries are reported but deliberately do not affect
             // the exit code: legacy dynamic includes are often legitimate, and

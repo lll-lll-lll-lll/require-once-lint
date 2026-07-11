@@ -9,6 +9,20 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Added
+
+- Dependency-aware autoload resolution. When Composer has dumped its autoloader
+  (`vendor/composer/autoload_*.php` present), depone classifies each
+  `require_once` against the merged root + dependency autoload maps, exactly as
+  Composer resolves them at runtime — so a require that loads a shadowed copy of
+  a dependency-provided class is reported as `conflicting`, and a require of a
+  dependency's eager `autoload.files` entry is reported as `redundant`. Without a
+  dumped autoloader depone falls back to reading the root `composer.json`, as
+  before.
+- `--format json` emits the report (and `--trace` output) as JSON for machine
+  consumption — CI dashboards, editors, `jq`. Exit codes are unchanged and
+  `text` remains the default format.
+
 ## [0.3.0] - 2026-07-11
 
 ### Removed

@@ -61,4 +61,71 @@ final class OutputFormatterTest extends TestCase
 
         self::assertSame($expected, (new OutputFormatter())->formatSummary($result));
     }
+
+    public function testFormatSummaryJsonCarriesEverySectionButNotEdges(): void
+    {
+        $result = [
+            'redundant' => [
+                ['file' => 'public/index.php', 'line' => 5, 'target' => 'src/Bar.php'],
+            ],
+            'conflicting' => [
+                [
+                    'file' => 'public/b.php',
+                    'line' => 9,
+                    'target' => 'src/Dup.php',
+                    'detail' => 'App\Dup is autoloaded from classmap/Dup.php — this require loads a shadowed copy',
+                ],
+            ],
+            'unresolved' => [
+                ['file' => 'public/c.php', 'line' => 3, 'type' => 'include', 'reason' => 'complex', 'expr' => "SITE_ROOT . '/x.php'"],
+            ],
+            'edges' => [
+                ['from' => 'public/index.php', 'line' => 5, 'type' => 'require_once', 'to' => 'src/Bar.php'],
+            ],
+        ];
+
+        $json = (new OutputFormatter())->formatSummaryJson($result);
+
+        // Output ends with a single trailing newline and is valid JSON.
+        self::assertStringEndsWith('}' . PHP_EOL, $json);
+        // Slashes stay unescaped so paths read naturally.
+        self::assertStringContainsString('src/Bar.php', $json);
+        self::assertStringNotContainsString('src\/Bar.php', $json);
+
+        $decoded = json_decode($json, true);
+        self::assertSame(
+            [
+                'redundant' => $result['redundant'],
+                'conflicting' => $result['conflicting'],
+                'unresolved' => $result['unresolved'],
+            ],
+            $decoded
+        );
+        // edges is informational and, like the text summary, excluded.
+        self::assertArrayNotHasKey('edges', $decoded);
+    }
+
+    public function testFormatSummaryJsonEmptySectionsAreEmptyArrays(): void
+    {
+        $result = ['redundant' => [], 'conflicting' => [], 'unresolved' => [], 'edges' => []];
+
+        $decoded = json_decode((new OutputFormatter())->formatSummaryJson($result), true);
+
+        self::assertSame(['redundant' => [], 'conflicting' => [], 'unresolved' => []], $decoded);
+    }
+
+    public function testFormatReverseTraceJsonMirrorsTraceResult(): void
+    {
+        $trace = [
+            'target' => 'src/Bar.php',
+            'directCallers' => ['public/index.php'],
+            'entrypoints' => ['public/index.php'],
+            'paths' => [['public/index.php', 'src/Bar.php']],
+            'truncated' => false,
+        ];
+
+        $decoded = json_decode((new OutputFormatter())->formatReverseTraceJson($trace), true);
+
+        self::assertSame($trace, $decoded);
+    }
 }

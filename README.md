@@ -126,6 +126,34 @@ are never silently skipped — they are listed under
 | `static_access` | the expression contains `::` access |
 | `complex` | anything else the evaluator cannot resolve |
 
+## JSON output
+
+Pass `--format json` to emit the report as JSON instead of the text summary —
+useful for CI dashboards, editors, or piping into `jq`. The exit codes are
+unchanged; only the output format differs (`text` is the default).
+
+```sh
+vendor/bin/depone --format json
+```
+
+```json
+{
+    "redundant": [
+        { "file": "public/index.php", "line": 4, "target": "src/Greeting.php" },
+        { "file": "public/index.php", "line": 5, "target": "src/Legacy/Mailer.php" }
+    ],
+    "conflicting": [],
+    "unresolved": [
+        { "file": "public/index.php", "line": 7, "type": "require_once", "reason": "variable", "expr": "$config['plugins_dir'] . '/bootstrap.php'" }
+    ]
+}
+```
+
+Redundant rows carry `file`, `line`, and `target`; conflicting rows add a
+`detail` string. `--format json` also applies to `--trace`, emitting the trace
+as a JSON object (`target`, `directCallers`, `entrypoints`, `paths`,
+`truncated`).
+
 ## Exit codes
 
 | Code | Meaning |
@@ -161,8 +189,13 @@ too — the step would stay green even when no analysis happened.
 
 ## How it works
 
-1. Reads the autoload rules from `composer.json` (`psr-4`, `psr-0`, `classmap`,
-   and `files`, including their `autoload-dev` counterparts).
+1. Loads the autoload rules. When Composer has dumped its autoloader
+   (`vendor/composer/autoload_*.php` present), depone uses those generated maps:
+   they merge the root project with every installed dependency exactly as
+   Composer resolves them at runtime, so a class provided by a dependency is
+   recognized too. Without a dumped autoloader it falls back to reading the root
+   `composer.json` directly (`psr-4`, `psr-0`, `classmap`, and `files`,
+   including their `autoload-dev` counterparts).
 2. Finds every require/include (excluding `vendor/` and `.git/`) by tokenizing
    each file with `token_get_all()`, and evaluates the path expression with a
    small static evaluator: string literals, concatenation, `__DIR__`/`__FILE__`,

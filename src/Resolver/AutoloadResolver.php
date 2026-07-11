@@ -11,6 +11,13 @@ use SplFileInfo;
 /**
  * Resolves class names to file paths from Composer autoload settings.
  *
+ * When Composer has dumped its autoloader (`vendor/composer/autoload_*.php`
+ * present), those generated maps are used: they already merge the root project
+ * with every installed dependency exactly as Composer resolves them at runtime,
+ * so a class provided by a dependency resolves too. Without a dumped autoloader
+ * (autoload never generated, e.g. a project that has not run `composer install`)
+ * the resolver falls back to parsing the root `composer.json` on its own.
+ *
  * @internal
  */
 final class AutoloadResolver
@@ -29,7 +36,12 @@ final class AutoloadResolver
     public function __construct(string $repoRoot)
     {
         $this->repoRoot = rtrim($repoRoot, '/');
-        $this->loadComposerAutoload();
+        // Prefer Composer's dumped autoloader (root + dependencies, merged as
+        // Composer sees them at runtime); fall back to reading composer.json
+        // directly when autoload has not been generated.
+        if (!$this->loadGeneratedAutoload()) {
+            $this->loadComposerAutoload();
+        }
     }
 
     /**
@@ -56,6 +68,85 @@ final class AutoloadResolver
 
         // Fall back to PSR-0 resolution.
         return $this->resolvePsr0($className);
+    }
+
+    /**
+     * Loads Composer's dumped autoload maps (`vendor/composer/autoload_*.php`).
+     *
+     * These generated files already merge the root project and every installed
+     * dependency, and hold pre-computed absolute paths, so they are the most
+     * faithful picture of what actually loads at runtime — including
+     * dependency-provided classes and any `exclude-from-classmap` Composer
+     * applied when dumping.
+     *
+     * @return bool True when a dumped autoloader was found and loaded; false
+     *              when none exists (caller should fall back to composer.json).
+     */
+    private function loadGeneratedAutoload(): bool
+    {
+        $dir = $this->repoRoot . '/vendor/composer';
+        $psr4File = $dir . '/autoload_psr4.php';
+
+        // Composer always generates the PSR-4 map alongside the others. Its
+        // absence means autoload has not been dumped: signal a fallback.
+        if (!is_file($psr4File)) {
+            return false;
+        }
+
+        foreach ($this->requireMap($psr4File) as $prefix => $dirs) {
+            if (!is_string($prefix)) {
+                continue;
+            }
+            foreach ((array) $dirs as $path) {
+                if (is_string($path)) {
+                    $this->psr4[$prefix][] = rtrim($path, '/');
+                }
+            }
+        }
+
+        $psr0File = $dir . '/autoload_namespaces.php';
+        if (is_file($psr0File)) {
+            foreach ($this->requireMap($psr0File) as $prefix => $dirs) {
+                if (!is_string($prefix)) {
+                    continue;
+                }
+                foreach ((array) $dirs as $path) {
+                    if (is_string($path)) {
+                        $this->psr0[$prefix][] = rtrim($path, '/');
+                    }
+                }
+            }
+        }
+
+        $classmapFile = $dir . '/autoload_classmap.php';
+        if (is_file($classmapFile)) {
+            foreach ($this->requireMap($classmapFile) as $class => $file) {
+                // Composer already applied first-wins when dumping, but keep the
+                // guard so resolve()'s classmap precedence stays authoritative.
+                if (is_string($class) && is_string($file)) {
+                    $this->classmap[$class] ??= $file;
+                }
+            }
+        }
+
+        // Sort longest prefixes first so more specific matches win.
+        uksort($this->psr4, fn ($a, $b) => strlen($b) - strlen($a));
+        uksort($this->psr0, fn ($a, $b) => strlen($b) - strlen($a));
+
+        return true;
+    }
+
+    /**
+     * Includes a Composer-generated autoload map in an isolated scope — so its
+     * `$vendorDir`/`$baseDir` locals never leak — and always returns an array.
+     *
+     * @return array<mixed>
+     */
+    private function requireMap(string $file): array
+    {
+        $map = (static fn (): mixed => require $file)();
+
+        return is_array($map) ? $map : [];
     }
 
     /**
