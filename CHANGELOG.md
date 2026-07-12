@@ -9,6 +9,8 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-12
+
 ### Fixed
 
 - `unresolved_include_require` reasons are now derived from the expression's
@@ -177,7 +179,8 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 - `--trace` option: show reverse caller traces (which files require the given
   file, and from which entrypoints).
 
-[Unreleased]: https://github.com/lll-lll-lll-lll/depone/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lll-lll-lll-lll/depone/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/lll-lll-lll-lll/depone/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/lll-lll-lll-lll/depone/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lll-lll-lll-lll/depone/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/lll-lll-lll-lll/depone/compare/v0.2.0...v0.2.1
