@@ -24,6 +24,15 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 - `--format json` emits the report (and `--trace` output) as JSON for machine
   consumption — CI dashboards, editors, `jq`. Exit codes are unchanged and
   `text` remains the default format.
+- `--inventory` lists the kept (load-bearing) `require_once` targets with the
+  reasons they cannot be removed: the top-level side effects autoload would
+  not reproduce (`define()`, `ini_set()`, function definitions, global
+  assignments, ...) as `kind:line` rows with a one-line excerpt, classes that
+  do not autoload back to the target, and guarded-only (polyfill)
+  declarations. One entry per target, with how many files require it. The
+  inventory is informational like `--trace` — it always exits `0` unless the
+  analysis fails — and honors `--format json`. Targets under `vendor/` are
+  excluded.
 
 ### Changed
 

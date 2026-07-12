@@ -221,6 +221,53 @@ final class CliApplicationTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // --inventory
+    // -------------------------------------------------------------------------
+
+    public function testInventoryExitsZeroEvenWhenFindingsExist(): void
+    {
+        // The fixture has a redundant require (exit 1 on a plain run), but the
+        // inventory is informational like --trace and never fails the build.
+        $r = $this->runApp('--inventory');
+        self::assertSame(0, $r['exitCode']);
+        self::assertSame('', $r['stderr']);
+        self::assertStringContainsString('kept_require_once=', $r['stdout']);
+    }
+
+    public function testInventoryListsKeptTargetsWithReasons(): void
+    {
+        $r = $this->runAppInRoot(self::$classificationFixtureRoot, '--inventory');
+        self::assertSame(0, $r['exitCode']);
+        self::assertStringContainsString('kept_require_once=2', $r['stdout']);
+        self::assertStringContainsString('src/helper.php', $r['stdout']);
+        self::assertStringContainsString('reasons=no_types,side_effects', $r['stdout']);
+        self::assertStringContainsString('unreachable_classes=App\Sub\Missing', $r['stdout']);
+        // Findings sections belong to the default report, not the inventory.
+        self::assertStringNotContainsString('redundant_require_once=', $r['stdout']);
+    }
+
+    public function testInventoryJsonFormat(): void
+    {
+        $r = $this->runAppInRoot(self::$classificationFixtureRoot, '--inventory', '--format', 'json');
+
+        self::assertSame(0, $r['exitCode']);
+        $decoded = json_decode($r['stdout'], true);
+        self::assertIsArray($decoded);
+        self::assertSame(
+            ['src/WrongPath.php', 'src/helper.php'],
+            array_column($decoded['kept'], 'target')
+        );
+    }
+
+    public function testTraceAndInventoryCannotBeCombined(): void
+    {
+        $r = $this->runApp('--trace', 'src/Bar.php', '--inventory');
+        self::assertSame(2, $r['exitCode']);
+        self::assertStringContainsString('cannot be combined', $r['stderr']);
+        self::assertSame('', $r['stdout']);
+    }
+
+    // -------------------------------------------------------------------------
     // --trace (text)
     // -------------------------------------------------------------------------
 

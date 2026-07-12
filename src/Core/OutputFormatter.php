@@ -66,6 +66,42 @@ final class OutputFormatter
     }
 
     /**
+     * Formats the side-effect inventory: one block per kept require target,
+     * with how often it is required, the reasons it is load-bearing, and the
+     * inventory of its top-level side effects (kind:line + excerpt).
+     *
+     * @param AnalysisResult $result
+     */
+    public function formatInventory(array $result): string
+    {
+        $output = 'kept_require_once=' . count($result['kept']) . PHP_EOL;
+        foreach ($result['kept'] as $entry) {
+            $output .= PHP_EOL . $entry['target'] . PHP_EOL;
+            $output .= '  required_from=' . count($entry['requiredFrom']) . PHP_EOL;
+            $output .= '  reasons=' . implode(',', $entry['reasons']) . PHP_EOL;
+            if ($entry['unreachableClasses'] !== []) {
+                $output .= '  unreachable_classes=' . implode(',', $entry['unreachableClasses']) . PHP_EOL;
+            }
+            foreach ($entry['sideEffects'] as $effect) {
+                $output .= "  {$effect['kind']}:{$effect['line']}  {$effect['excerpt']}" . PHP_EOL;
+            }
+        }
+
+        return $output;
+    }
+
+    /**
+     * Machine-readable counterpart of {@see formatInventory()}. Unlike the
+     * text form it also carries each kept target's requiring file:line list.
+     *
+     * @param AnalysisResult $result
+     */
+    public function formatInventoryJson(array $result): string
+    {
+        return $this->encode(['kept' => $result['kept']]);
+    }
+
+    /**
      * Formats reverse-trace output as JSON.
      *
      * @param TraceResult $trace

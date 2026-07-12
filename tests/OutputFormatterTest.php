@@ -114,6 +114,95 @@ final class OutputFormatterTest extends TestCase
         self::assertSame(['redundant' => [], 'conflicting' => [], 'unresolved' => []], $decoded);
     }
 
+    public function testFormatInventoryOutputIsByteExact(): void
+    {
+        // The inventory text output is part of the public CLI contract: one
+        // block per kept target — required_from count, reasons, unreachable
+        // classes when present, then one kind:line + excerpt row per side
+        // effect.
+        $result = [
+            'redundant' => [],
+            'conflicting' => [],
+            'unresolved' => [],
+            'kept' => [
+                [
+                    'target' => 'src/WrongPath.php',
+                    'requiredFrom' => [['file' => 'public/index.php', 'line' => 6]],
+                    'reasons' => ['class_not_autoloadable'],
+                    'sideEffects' => [],
+                    'unreachableClasses' => ['App\Sub\Missing'],
+                ],
+                [
+                    'target' => 'src/helpers.php',
+                    'requiredFrom' => [
+                        ['file' => 'public/index.php', 'line' => 8],
+                        ['file' => 'public/other.php', 'line' => 3],
+                    ],
+                    'reasons' => ['no_types', 'side_effects'],
+                    'sideEffects' => [
+                        ['kind' => 'function', 'line' => 7, 'excerpt' => 'function h($s) { return $s; }'],
+                        ['kind' => 'define', 'line' => 3, 'excerpt' => "define('APP_ROOT', __DIR__);"],
+                    ],
+                    'unreachableClasses' => [],
+                ],
+            ],
+            'edges' => [],
+        ];
+
+        $expected = 'kept_require_once=2' . PHP_EOL
+            . PHP_EOL
+            . 'src/WrongPath.php' . PHP_EOL
+            . '  required_from=1' . PHP_EOL
+            . '  reasons=class_not_autoloadable' . PHP_EOL
+            . '  unreachable_classes=App\Sub\Missing' . PHP_EOL
+            . PHP_EOL
+            . 'src/helpers.php' . PHP_EOL
+            . '  required_from=2' . PHP_EOL
+            . '  reasons=no_types,side_effects' . PHP_EOL
+            . '  function:7  function h($s) { return $s; }' . PHP_EOL
+            . "  define:3  define('APP_ROOT', __DIR__);" . PHP_EOL;
+
+        self::assertSame($expected, (new OutputFormatter())->formatInventory($result));
+    }
+
+    public function testFormatInventoryPrintsHeaderWhenEmpty(): void
+    {
+        $result = ['redundant' => [], 'conflicting' => [], 'unresolved' => [], 'kept' => [], 'edges' => []];
+
+        self::assertSame(
+            'kept_require_once=0' . PHP_EOL,
+            (new OutputFormatter())->formatInventory($result)
+        );
+    }
+
+    public function testFormatInventoryJsonCarriesOnlyKept(): void
+    {
+        $result = [
+            'redundant' => [
+                ['file' => 'public/index.php', 'line' => 5, 'target' => 'src/Bar.php'],
+            ],
+            'conflicting' => [],
+            'unresolved' => [],
+            'kept' => [
+                [
+                    'target' => 'src/helpers.php',
+                    'requiredFrom' => [['file' => 'public/index.php', 'line' => 8]],
+                    'reasons' => ['no_types', 'side_effects'],
+                    'sideEffects' => [
+                        ['kind' => 'function', 'line' => 7, 'excerpt' => 'function h($s) { return $s; }'],
+                    ],
+                    'unreachableClasses' => [],
+                ],
+            ],
+            'edges' => [],
+        ];
+
+        $decoded = json_decode((new OutputFormatter())->formatInventoryJson($result), true);
+
+        // The inventory is its own report: findings sections stay out of it.
+        self::assertSame(['kept' => $result['kept']], $decoded);
+    }
+
     public function testFormatReverseTraceJsonMirrorsTraceResult(): void
     {
         $trace = [

@@ -411,6 +411,114 @@ final class AnalyzerTest extends TestCase
         self::assertSame([], $result['unresolved']);
     }
 
+    // -------------------------------------------------------------------------
+    // kept inventory (why load-bearing requires cannot be removed)
+    // -------------------------------------------------------------------------
+
+    public function testKeptInventoryRecordsWhyRequiresAreLoadBearing(): void
+    {
+        // The requires left out of the findings are not dropped: the kept
+        // inventory records, per target, the reasons they are load-bearing —
+        // an unreachable class, or the side effects autoload cannot reproduce.
+        $projectRoot = $this->getFixturePath('RequireClassificationProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertSame(
+            [
+                [
+                    'target' => 'src/WrongPath.php',
+                    'requiredFrom' => [['file' => 'public/index.php', 'line' => 6]],
+                    'reasons' => ['class_not_autoloadable'],
+                    'sideEffects' => [],
+                    'unreachableClasses' => ['App\Sub\Missing'],
+                ],
+                [
+                    'target' => 'src/helper.php',
+                    'requiredFrom' => [['file' => 'public/index.php', 'line' => 8]],
+                    'reasons' => ['no_types', 'side_effects'],
+                    'sideEffects' => [
+                        [
+                            'kind' => 'function',
+                            'line' => 7,
+                            'excerpt' => "function require_classification_helper(): string { return 'helper'; }",
+                        ],
+                    ],
+                    'unreachableClasses' => [],
+                ],
+            ],
+            $result['kept']
+        );
+    }
+
+    public function testKeptInventoryReportsGuardedPolyfillAsItsOwnReason(): void
+    {
+        // A polyfill declares its type only behind a class_exists guard —
+        // kept for a different reason than a file declaring no types at all.
+        $projectRoot = $this->getFixturePath('PolyfillProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        self::assertCount(1, $result['kept']);
+        $entry = $result['kept'][0];
+        self::assertSame('compat/polyfill.php', $entry['target']);
+        self::assertSame(['guarded_declarations_only', 'side_effects'], $entry['reasons']);
+        self::assertSame('control_flow', $entry['sideEffects'][0]['kind']);
+        self::assertSame([], $entry['unreachableClasses']);
+    }
+
+    public function testKeptInventoryReportsMissingTargetsAndAggregatesCallers(): void
+    {
+        $projectRoot = $this->getFixturePath('RequireClassificationEdgeProject');
+
+        $result = (new Analyzer($projectRoot))->run();
+
+        $byTarget = array_column($result['kept'], null, 'target');
+
+        // A require whose target does not exist is kept, with the reason.
+        self::assertSame(['target_missing'], $byTarget['src/DoesNotExist.php']['reasons']);
+
+        // MixedMissing is required from both entrypoints: one aggregated
+        // entry, callers sorted by file and line.
+        self::assertSame(
+            [
+                ['file' => 'public/index.php', 'line' => 6],
+                ['file' => 'public/second.php', 'line' => 5],
+            ],
+            $byTarget['src/MixedMissing.php']['requiredFrom']
+        );
+        self::assertSame(['class_not_autoloadable'], $byTarget['src/MixedMissing.php']['reasons']);
+        self::assertSame(['App\Sub\Gone'], $byTarget['src/MixedMissing.php']['unreachableClasses']);
+    }
+
+    public function testKeptInventoryExcludesVendorTargets(): void
+    {
+        // require_once vendor/autoload.php is load-bearing in every project,
+        // but vendor code is not the user's to migrate: it stays out of the
+        // inventory, while the user's own kept require is listed.
+        $root = sys_get_temp_dir() . '/depone_vendor_kept_' . bin2hex(random_bytes(6));
+        mkdir($root . '/vendor', 0777, true);
+        mkdir($root . '/src', 0777, true);
+        file_put_contents($root . '/composer.json', '{}');
+        file_put_contents(
+            $root . '/vendor/autoload.php',
+            "<?php\n\nrequire __DIR__ . '/composer/autoload_real.php';\n"
+        );
+        file_put_contents($root . '/src/helpers.php', "<?php\n\nfunction helper(): void\n{\n}\n");
+        file_put_contents(
+            $root . '/index.php',
+            "<?php\n\nrequire_once __DIR__ . '/vendor/autoload.php';\nrequire_once __DIR__ . '/src/helpers.php';\n"
+        );
+
+        try {
+            $result = (new Analyzer($root))->run();
+
+            self::assertSame(['src/helpers.php'], array_column($result['kept'], 'target'));
+        } finally {
+            $this->removeTree($root);
+        }
+    }
+
     public function testActionableCategoriesConstantMatchesResultKeys(): void
     {
         $projectRoot = $this->getFixturePath('SampleProject');
@@ -420,8 +528,9 @@ final class AnalyzerTest extends TestCase
         // The exit-code gate and the summary iterate ACTIONABLE_CATEGORIES, so
         // a category added to run() but not to the constant would be invisible
         // to both. Asserting the full key list makes that drift fail loudly.
+        // `unresolved`, `kept`, and `edges` are informational by design.
         self::assertSame(
-            [...Analyzer::ACTIONABLE_CATEGORIES, 'unresolved', 'edges'],
+            [...Analyzer::ACTIONABLE_CATEGORIES, 'unresolved', 'kept', 'edges'],
             array_keys($result)
         );
     }

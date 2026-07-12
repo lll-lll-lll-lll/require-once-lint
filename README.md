@@ -107,7 +107,7 @@ categories:
 | --- | --- | --- |
 | `redundant_require_once` | The target is already autoloaded, and deleting the require provably changes nothing. | Delete the require. |
 | `conflicting_require_once` | The target declares a class that Composer autoloads from a *different* file. Deleting the require would change which definition loads. | Investigate the shadowed copy before touching the require. |
-| *(none — silent)* | The target is legitimately not autoloadable: no matching rule, a class whose derived path is missing, it declares no types, or it also defines functions/constants or runs top-level code. | Leave it; the require is load-bearing. |
+| *(none — silent)* | The target is legitimately not autoloadable: no matching rule, a class whose derived path is missing, it declares no types, or it also defines functions/constants or runs top-level code. | Leave it; the require is load-bearing. Run `--inventory` to see why. |
 
 A require is only ever called `redundant` when deleting it is provably safe:
 the target is an eager `autoload.files` entry, or it declares nothing but
@@ -125,6 +125,57 @@ are never silently skipped — they are listed under
 | `method_call` | the expression contains an object method call |
 | `static_access` | the expression contains `::` access |
 | `complex` | anything else the evaluator cannot resolve |
+
+## Why the remaining requires must stay
+
+The default report deliberately keeps quiet about load-bearing requires. When
+planning a migration you often want the opposite view — a map of *why* each
+remaining require cannot be removed. `--inventory` prints that map: one block
+per kept `require_once` target.
+
+```sh
+vendor/bin/depone --inventory
+```
+
+```
+kept_require_once=2
+
+src/WrongPath.php
+  required_from=1
+  reasons=class_not_autoloadable
+  unreachable_classes=App\Sub\Missing
+
+src/helpers.php
+  required_from=3
+  reasons=no_types,side_effects
+  function:12  function h($s) { return htmlspecialchars($s); }
+  define:3  define('APP_ROOT', __DIR__);
+```
+
+Each block shows how many places require the target (`required_from`), the
+reasons the require is load-bearing, and — for `side_effects` — an inventory
+of the top-level statements autoload cannot reproduce, one `kind:line` row
+with a one-line excerpt per statement. Reasons:
+
+| Reason | Meaning |
+| --- | --- |
+| `side_effects` | the target runs top-level statements autoload would not reproduce |
+| `no_types` | the target declares no class-like types at all |
+| `guarded_declarations_only` | the target declares types only behind guards (a polyfill) |
+| `class_not_autoloadable` | a declared class does not autoload back to the target (listed under `unreachable_classes`) |
+| `target_missing` / `target_unreadable` / `unparsable` | the target could not be found, read, or parsed |
+
+Side-effect kinds are `function`, `constant`, `define`, `ini_set`, `call`,
+`assignment`, `include`, `control_flow`, `return`, `output`, `other`, and
+`unparsable`. Both lists may grow over time; consumers should tolerate unknown
+reasons and kinds.
+
+The inventory is informational, like `--trace`: it always exits `0` unless the
+analysis itself fails, and cannot be combined with `--trace`. Targets under
+`vendor/` (`vendor/autoload.php` in practice) are excluded — they are not
+yours to migrate. With `--format json` the inventory is emitted as a `kept`
+array whose entries also carry the full requiring `file`/`line` list
+(`requiredFrom`).
 
 ## JSON output
 
@@ -166,8 +217,9 @@ always survives intact.
 
 `unresolved_include_require` entries are reported but never affect the exit
 code: legacy dynamic includes are often legitimate, and failing on them would
-turn the first run red on almost every legacy project. `--trace` output is
-informational and always exits `0` unless the analysis itself fails.
+turn the first run red on almost every legacy project. `--trace` and
+`--inventory` output is informational and always exits `0` unless the analysis
+itself fails.
 
 ## Using in CI
 

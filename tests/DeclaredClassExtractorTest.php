@@ -288,4 +288,120 @@ final class DeclaredClassExtractorTest extends TestCase
         yield 'anonymous class expression' => ['<?php $x = new class {};'];
         yield 'config-style return' => ['<?php return [1, 2, 3];'];
     }
+
+    // -------------------------------------------------------------------------
+    // profile (side-effect inventory)
+    // -------------------------------------------------------------------------
+
+    #[DataProvider('sideEffectKinds')]
+    public function testProfileClassifiesSideEffectKinds(string $code, string $expectedKind): void
+    {
+        $profile = $this->extractor->profile($code);
+
+        self::assertTrue($profile->parsed);
+        self::assertCount(1, $profile->sideEffects);
+        self::assertSame($expectedKind, $profile->sideEffects[0]['kind']);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function sideEffectKinds(): iterable
+    {
+        yield 'function definition' => ['<?php function f() {}', 'function'];
+        yield 'const statement' => ['<?php const X = 1;', 'constant'];
+        yield 'define() call' => ["<?php define('X', 1);", 'define'];
+        yield 'fully qualified \define() call' => ["<?php \\define('X', 1);", 'define'];
+        yield 'ini_set() call' => ["<?php ini_set('memory_limit', '1G');", 'ini_set'];
+        yield 'other function call' => ['<?php session_start();', 'call'];
+        yield 'static method call' => ['<?php App\Kernel::boot();', 'call'];
+        yield 'assignment' => ['<?php $x = 1;', 'assignment'];
+        yield 'global statement' => ['<?php global $db;', 'assignment'];
+        yield 'nested require' => ["<?php require 'x.php';", 'include'];
+        yield 'top-level if' => ['<?php if (PHP_SAPI === "cli") { echo 1; }', 'control_flow'];
+        yield 'config-style return' => ['<?php return [1];', 'return'];
+        yield 'echo' => ['<?php echo "hi";', 'output'];
+        yield 'inline HTML' => ['hello<?php class Foo {}', 'output'];
+        yield 'unset statement' => ['<?php unset($GLOBALS["x"]);', 'other'];
+    }
+
+    public function testProfileRecordsLineAndCommentFreeExcerpt(): void
+    {
+        // The excerpt is php-parser's own rendering of the statement — one
+        // line, without the comment attached above it — and the line number
+        // is the statement's, not the comment's.
+        $code = <<<'PHP'
+            <?php
+
+            // Bootstraps the legacy constants.
+            define(
+                'APP_ROOT',
+                __DIR__
+            );
+            PHP;
+
+        $profile = $this->extractor->profile($code);
+
+        self::assertSame(
+            [['kind' => 'define', 'line' => 4, 'excerpt' => "define('APP_ROOT', __DIR__);"]],
+            $profile->sideEffects
+        );
+    }
+
+    public function testProfileTruncatesLongExcerpts(): void
+    {
+        $long = str_repeat('a', 200);
+
+        $profile = $this->extractor->profile("<?php echo '{$long}';");
+
+        $excerpt = $profile->sideEffects[0]['excerpt'];
+        self::assertStringEndsWith('…', $excerpt);
+        self::assertSame(80 + strlen('…'), strlen($excerpt));
+    }
+
+    public function testProfileOfUnparsableSourceCountsAsSideEffect(): void
+    {
+        $profile = $this->extractor->profile("<?php\nclass {");
+
+        self::assertFalse($profile->parsed);
+        self::assertFalse($profile->declaresOnlyTypes());
+        self::assertSame([], $profile->declaredClasses);
+        self::assertCount(1, $profile->sideEffects);
+        self::assertSame('unparsable', $profile->sideEffects[0]['kind']);
+        self::assertSame(2, $profile->sideEffects[0]['line']);
+    }
+
+    public function testProfileSeparatesGuardedDeclarationsFromTopLevel(): void
+    {
+        // A polyfill: extract()'s classmap view sees the guarded class, the
+        // top-level view does not, and the guard itself is the side effect.
+        $code = <<<'PHP'
+            <?php
+            namespace App;
+            if (!class_exists(Widget::class)) {
+                class Widget
+                {
+                }
+            }
+            PHP;
+
+        $profile = $this->extractor->profile($code);
+
+        self::assertSame(['App\Widget'], $profile->declaredClasses);
+        self::assertSame([], $profile->topLevelClasses);
+        self::assertCount(1, $profile->sideEffects);
+        self::assertSame('control_flow', $profile->sideEffects[0]['kind']);
+    }
+
+    public function testProfileOfPureDeclarationFileHasNoSideEffects(): void
+    {
+        $code = '<?php declare(strict_types=1); namespace App; use Other\Thing; class Foo {}';
+
+        $profile = $this->extractor->profile($code);
+
+        self::assertTrue($profile->declaresOnlyTypes());
+        self::assertSame(['App\Foo'], $profile->topLevelClasses);
+        self::assertSame(['App\Foo'], $profile->declaredClasses);
+        self::assertSame([], $profile->sideEffects);
+    }
 }

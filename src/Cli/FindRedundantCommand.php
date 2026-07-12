@@ -45,6 +45,7 @@ final class FindRedundantCommand extends Command
             ->setName(self::NAME)
             ->setDescription('Classify require_once statements by their relationship to Composer autoload (redundant, conflicting).')
             ->addOption('trace', null, InputOption::VALUE_REQUIRED, 'Show reverse caller traces for the given file path (repo relative) — who requires this file?')
+            ->addOption('inventory', null, InputOption::VALUE_NONE, 'List the kept (load-bearing) require_once targets and why they cannot be removed: side effects, unreachable classes, ...')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or json.', self::FORMAT_TEXT);
     }
 
@@ -60,6 +61,12 @@ final class FindRedundantCommand extends Command
 
         $traceOption = $input->getOption('trace');
         $traceTarget = is_string($traceOption) ? $traceOption : null;
+
+        $inventory = (bool) $input->getOption('inventory');
+        if ($inventory && $traceTarget !== null) {
+            $errOutput->writeln('options --trace and --inventory cannot be combined');
+            return self::EXIT_ERROR;
+        }
 
         $formatOption = $input->getOption('format');
         $format = is_string($formatOption) ? $formatOption : self::FORMAT_TEXT;
@@ -81,6 +88,15 @@ final class FindRedundantCommand extends Command
                 $this->writeRaw($output, $asJson
                     ? $formatter->formatReverseTraceJson($trace)
                     : $formatter->formatReverseTrace($trace));
+                return self::EXIT_OK;
+            }
+
+            if ($inventory) {
+                // The inventory is informational, like --trace: it reports why
+                // the kept requires are load-bearing and never fails the build.
+                $this->writeRaw($output, $asJson
+                    ? $formatter->formatInventoryJson($result)
+                    : $formatter->formatInventory($result));
                 return self::EXIT_OK;
             }
 
