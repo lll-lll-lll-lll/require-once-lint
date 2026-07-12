@@ -1,0 +1,42 @@
+{
+    "name": "depone/rector-example",
+    "description": "Example: delete the require_once statements depone proves redundant, using a custom Rector rule.",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1"
+    },
+    "require-dev": {
+        "depone/depone": "^0.4",
+        "rector/rector": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        },
+        "files": [
+            "src/constants.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Example\\": "rector-rules/"
+        }
+    },
+    "scripts": {
+        "report": "vendor/bin/depone --format json > depone-report.json || [ $? -ne 2 ]",
+        "preview": [
+            "@report",
+            "vendor/bin/rector process --dry-run || true"
+        ],
+        "fix": [
+            "@report",
+            "vendor/bin/rector process",
+            "vendor/bin/depone"
+        ]
+    },
+    "scripts-descriptions": {
+        "report": "Run depone and save the JSON report the Rector rule consumes",
+        "preview": "Show the deletions Rector would make, without touching files",
+        "fix": "Delete every provably redundant require_once, then re-run depone to confirm the project is clean"
+    }
+}

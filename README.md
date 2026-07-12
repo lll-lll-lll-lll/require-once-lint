@@ -232,6 +232,11 @@ standalone tool. `composer dump-autoload
 but never parses source-level `require_once` statements, so it cannot make this
 connection. depone is also report-only by design and never rewrites your code.
 
+Deleting the reported requires is Rector's job, not depone's: depone proves
+what is safe to remove, and a small custom Rector rule consumes the JSON
+report and performs the AST-safe deletion — dry-run, format preservation and
+all. [`example/`](example/) is a complete working setup of that pipeline.
+
 ## Scope and stability
 
 `depone` is a CLI tool. Its supported public interface is the command name,
