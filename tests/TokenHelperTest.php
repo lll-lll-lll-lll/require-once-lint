@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Depone\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Depone\Internal\Tokenizer\Token;
+use PhpToken;
 use Depone\Internal\Tokenizer\TokenHelper;
 
 /**
- * Unit tests for TokenHelper::classifyUnresolvableReason().
+ * Unit tests for TokenHelper::classifyUnresolvableReason(), the raw-token
+ * fallback used when a snippet cannot be parsed (parseable expressions are
+ * classified from the AST by IncludeExprParser).
  *
  * Covered behavior:
  *   - variable / method_call / static_access / complex classification
@@ -19,11 +21,11 @@ use Depone\Internal\Tokenizer\TokenHelper;
 final class TokenHelperTest extends TestCase
 {
     /**
-     * @return list<Token>
+     * @return list<PhpToken>
      */
     private function tokensFor(string $phpExpr): array
     {
-        $tokens = Token::tokenize('<?php ' . $phpExpr);
+        $tokens = PhpToken::tokenize('<?php ' . $phpExpr);
         // Remove the leading T_OPEN_TAG token.
         return array_slice($tokens, 1);
     }
@@ -81,6 +83,16 @@ final class TokenHelperTest extends TestCase
     public function testEmptyTokenListIsClassifiedAsComplex(): void
     {
         self::assertSame(TokenHelper::REASON_COMPLEX, TokenHelper::classifyUnresolvableReason([]));
+    }
+
+    public function testNullsafeMethodCallIsClassifiedAsMethodCall(): void
+    {
+        // `?->` is its own token (T_NULLSAFE_OBJECT_OPERATOR), not
+        // T_OBJECT_OPERATOR; it must classify as method_call all the same.
+        self::assertSame(
+            TokenHelper::REASON_METHOD_CALL,
+            TokenHelper::classifyUnresolvableReason($this->tokensFor('getConfig()?->path()'))
+        );
     }
 
     public function testVariableFollowedByMethodCallIsClassifiedAsVariableNotMethodCall(): void

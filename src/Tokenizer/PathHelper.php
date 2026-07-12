@@ -4,7 +4,14 @@ declare(strict_types=1);
 
 namespace Depone\Internal\Tokenizer;
 
+use Symfony\Component\Filesystem\Path;
+
 /**
+ * Path handling, delegated to symfony/filesystem's {@see Path} instead of a
+ * hand-rolled implementation: canonicalization (backslashes, `.`/`..`) and
+ * absolute-path detection follow the library, so Windows drive-letter paths
+ * (`C:\...`) are recognized as absolute too.
+ *
  * @internal
  */
 final class PathHelper
@@ -17,35 +24,7 @@ final class PathHelper
      */
     public static function normalize(string $path): string
     {
-        $path = str_replace('\\', '/', $path);
-        $isAbs = ($path !== '' && $path[0] === '/');
-        $segments = explode('/', $path);
-        $stack = [];
-
-        foreach ($segments as $segment) {
-            if ($segment === '' || $segment === '.') {
-                continue;
-            }
-            if ($segment === '..') {
-                // Pop for absolute paths, or when a normal segment exists on the stack.
-                // Preserve `..` for relative paths when there is nothing left to pop.
-                if ($isAbs) {
-                    if ($stack !== []) {
-                        array_pop($stack);
-                    }
-                } elseif ($stack !== [] && $stack[count($stack) - 1] !== '..') {
-                    array_pop($stack);
-                } else {
-                    $stack[] = '..';
-                }
-                continue;
-            }
-            $stack[] = $segment;
-        }
-
-        $normalized = implode('/', $stack);
-
-        return $isAbs ? '/' . $normalized : $normalized;
+        return Path::canonicalize($path);
     }
 
     /**
@@ -57,14 +36,16 @@ final class PathHelper
      */
     public static function toRelative(string $absolute, string $repoRoot): string
     {
-        $absolute = self::normalize($absolute);
-        $prefix = self::normalize($repoRoot) . '/';
+        $absolute = Path::canonicalize($absolute);
+        $repoRoot = Path::canonicalize($repoRoot);
 
-        if (str_starts_with($absolute, $prefix)) {
-            return substr($absolute, strlen($prefix));
+        // The repo root itself stays absolute: only paths strictly inside it
+        // have a meaningful repo-relative form.
+        if ($absolute === $repoRoot || !Path::isBasePath($repoRoot, $absolute)) {
+            return $absolute;
         }
 
-        return $absolute;
+        return Path::makeRelative($absolute, $repoRoot);
     }
 
     /**
@@ -79,10 +60,6 @@ final class PathHelper
      */
     public static function resolveRequiredPath(string $rawValue, string $contextFile): string
     {
-        if ($rawValue !== '' && $rawValue[0] === '/') {
-            return self::normalize($rawValue);
-        }
-
-        return self::normalize(dirname($contextFile) . '/' . $rawValue);
+        return Path::makeAbsolute($rawValue, Path::getDirectory($contextFile));
     }
 }

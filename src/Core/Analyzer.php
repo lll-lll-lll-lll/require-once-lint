@@ -4,18 +4,14 @@ declare(strict_types=1);
 
 namespace Depone\Internal\Core;
 
-use FilesystemIterator;
-use RecursiveCallbackFilterIterator;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use Depone\Internal\Exception\AnalyzerException;
 use Depone\Internal\Resolver\AutoloadResolver;
 use Depone\Internal\Tokenizer\DeclaredClassExtractor;
 use Depone\Internal\Tokenizer\IncludeExprParser;
 use Depone\Internal\Tokenizer\PathHelper;
-use Depone\Internal\Tokenizer\Token;
 use Depone\Internal\Tokenizer\TokenHelper;
-use SplFileInfo;
+use PhpToken;
+use Symfony\Component\Finder\Finder;
 
 /**
  * Analyzes PHP files to detect redundant require_once statements and classify
@@ -136,16 +132,18 @@ final class Analyzer
         $unresolved = [];
         $consts = [];
 
-        $tokens = Token::tokenize($content);
+        // array_values(): tokenize() returns a list at runtime, but its stub
+        // signature is a plain array, and the token-cursor helpers rely on
+        // contiguous indexes.
+        $tokens = array_values(PhpToken::tokenize($content));
         $count = count($tokens);
 
         for ($i = 0; $i < $count; $i++) {
             $token = $tokens[$i];
-            $id = $token->id;
             $text = $token->text;
 
             // Collect constants defined via define().
-            if ($id === T_STRING && strtolower($text) === 'define') {
+            if ($token->is(T_STRING) && strtolower($text) === 'define') {
                 $constDefinition = $this->includeExprParser->parseDefine($tokens, $i, $consts, $absolutePath);
                 if ($constDefinition !== null) {
                     [$constName, $constValue] = $constDefinition;
@@ -154,7 +152,7 @@ final class Analyzer
             }
 
             // Process require/include statements.
-            if (!in_array($id, [T_REQUIRE_ONCE, T_REQUIRE, T_INCLUDE_ONCE, T_INCLUDE], true)) {
+            if (!$token->is([T_REQUIRE_ONCE, T_REQUIRE, T_INCLUDE_ONCE, T_INCLUDE])) {
                 continue;
             }
 
@@ -168,7 +166,7 @@ final class Analyzer
                     'file' => $relativePath,
                     'line' => $line,
                     'type' => $requireType,
-                    'reason' => TokenHelper::classifyUnresolvableReason($exprTokens),
+                    'reason' => $this->includeExprParser->classifyUnresolvableReason($exprTokens),
                     'expr' => TokenHelper::tokensToString($exprTokens),
                 ];
                 continue;
@@ -428,29 +426,26 @@ final class Analyzer
     }
 
     /**
-     * Collects analyzable PHP files in the repository, excluding vendor and .git.
+     * Collects analyzable PHP files in the repository, excluding `vendor` and
+     * `.git` directories at any depth. Dot files are deliberately included:
+     * a hidden `.bootstrap.php` is as analyzable as any other file, so
+     * Finder's ignore defaults are switched off in favor of the explicit
+     * exclude list.
      *
      * @return array<string> Relative paths from the repository root
      */
     private function collectPhpFiles(): array
     {
+        $finder = Finder::create()
+            ->files()
+            ->ignoreDotFiles(false)
+            ->ignoreVCS(false)
+            ->exclude(['.git', 'vendor'])
+            ->name('/\.php$/i')
+            ->in($this->repoRoot);
+
         $files = [];
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveCallbackFilterIterator(
-                new RecursiveDirectoryIterator($this->repoRoot, FilesystemIterator::SKIP_DOTS),
-                static function (SplFileInfo $info): bool {
-                    $name = $info->getFilename();
-                    if ($info->isDir()) {
-                        return !in_array($info->getFilename(), ['.git', 'vendor'], true);
-                    }
-
-                    return strtolower(pathinfo($name, PATHINFO_EXTENSION)) === 'php';
-                }
-            )
-        );
-
-        foreach ($iterator as $info) {
-            assert($info instanceof SplFileInfo);
+        foreach ($finder as $info) {
             $files[] = PathHelper::normalize($info->getPathname());
         }
 

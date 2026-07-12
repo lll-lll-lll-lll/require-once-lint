@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Depone\Tests;
 
 use PHPUnit\Framework\TestCase;
+use PhpToken;
 use Depone\Internal\Tokenizer\IncludeExprParser;
-use Depone\Internal\Tokenizer\Token;
+use Depone\Internal\Tokenizer\TokenHelper;
 
 /**
  * Unit tests for IncludeExprParser's static expression evaluation.
@@ -40,10 +41,18 @@ final class IncludeExprParserTest extends TestCase
      */
     private function parse(string $phpExpr, array $consts = [], string $file = self::FILE): ?string
     {
-        $tokens = Token::tokenize('<?php ' . $phpExpr);
+        return $this->parser->evalStaticExpr($this->tokensFor($phpExpr), $consts, $file);
+    }
+
+    /**
+     * @return list<PhpToken>
+     */
+    private function tokensFor(string $phpExpr): array
+    {
+        $tokens = PhpToken::tokenize('<?php ' . $phpExpr);
 
         // Remove the leading T_OPEN_TAG token.
-        return $this->parser->evalStaticExpr(array_slice($tokens, 1), $consts, $file);
+        return array_slice($tokens, 1);
     }
 
     // -------------------------------------------------------------------------
@@ -397,7 +406,7 @@ final class IncludeExprParserTest extends TestCase
      */
     private function define(string $php, array $consts = []): ?array
     {
-        $tokens = Token::tokenize('<?php ' . $php);
+        $tokens = PhpToken::tokenize('<?php ' . $php);
         foreach ($tokens as $i => $token) {
             if ($token->id === T_STRING && strtolower($token->text) === 'define') {
                 return $this->parser->parseDefine($tokens, $i, $consts, self::FILE);
@@ -446,5 +455,82 @@ final class IncludeExprParserTest extends TestCase
     {
         // Only string constants can take part in path resolution.
         self::assertNull($this->define("define('LEVEL', 3);"));
+    }
+
+    // -------------------------------------------------------------------------
+    // classifyUnresolvableReason() (AST-based)
+    // -------------------------------------------------------------------------
+
+    public function testClassifyVariable(): void
+    {
+        self::assertSame(
+            TokenHelper::REASON_VARIABLE,
+            $this->parser->classifyUnresolvableReason($this->tokensFor("__DIR__ . '/' . \$file"))
+        );
+    }
+
+    public function testClassifyMethodCallOnFunctionResult(): void
+    {
+        self::assertSame(
+            TokenHelper::REASON_METHOD_CALL,
+            $this->parser->classifyUnresolvableReason($this->tokensFor('getConfig()->path()'))
+        );
+    }
+
+    public function testClassifyNullsafeMethodCallAsMethodCall(): void
+    {
+        // `?->` is T_NULLSAFE_OBJECT_OPERATOR, which the old token scan never
+        // matched (misclassified as complex); the AST sees the call itself.
+        self::assertSame(
+            TokenHelper::REASON_METHOD_CALL,
+            $this->parser->classifyUnresolvableReason($this->tokensFor('getConfig()?->path()'))
+        );
+    }
+
+    public function testClassifyStaticAccess(): void
+    {
+        self::assertSame(
+            TokenHelper::REASON_STATIC_ACCESS,
+            $this->parser->classifyUnresolvableReason($this->tokensFor('Loader::PATH'))
+        );
+    }
+
+    public function testClassifyVariableReceiverWinsOverItsMethodCall(): void
+    {
+        // $obj->method() is both a variable and a method call; the variable
+        // is the earliest (and more precise) blocker, matching the old
+        // left-to-right token scan.
+        self::assertSame(
+            TokenHelper::REASON_VARIABLE,
+            $this->parser->classifyUnresolvableReason($this->tokensFor('$obj->method()'))
+        );
+    }
+
+    public function testClassifyEarliestMarkerWinsInSourceOrder(): void
+    {
+        // The static access starts before the variable, so it is the reason —
+        // same outcome as scanning tokens left to right.
+        self::assertSame(
+            TokenHelper::REASON_STATIC_ACCESS,
+            $this->parser->classifyUnresolvableReason($this->tokensFor("Loader::path(\$name) . '/x.php'"))
+        );
+    }
+
+    public function testClassifyUnresolvableConstantAsComplex(): void
+    {
+        self::assertSame(
+            TokenHelper::REASON_COMPLEX,
+            $this->parser->classifyUnresolvableReason($this->tokensFor("'prefix/' . UNKNOWN_CONST"))
+        );
+    }
+
+    public function testClassifyUnparsableSnippetFallsBackToTokenScan(): void
+    {
+        // An unclosed paren cannot be parsed; the raw-token fallback still
+        // spots the variable.
+        self::assertSame(
+            TokenHelper::REASON_VARIABLE,
+            $this->parser->classifyUnresolvableReason($this->tokensFor("('foo' . \$dir"))
+        );
     }
 }

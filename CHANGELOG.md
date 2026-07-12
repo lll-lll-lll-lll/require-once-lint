@@ -11,6 +11,13 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ### Fixed
 
+- `unresolved_include_require` reasons are now derived from the expression's
+  AST instead of a raw token scan: expressions using the nullsafe operator
+  (`getConfig()?->path()`) are classified `method_call` instead of falling
+  through to `complex`. Reasons for other expressions are unchanged.
+- Windows absolute paths (`C:\...`) in require targets are now recognized as
+  absolute instead of being resolved relative to the requiring file, so
+  targets written with drive letters classify and print correctly.
 - `vendor/bin/depone` no longer fatals when depone is installed as a Composer
   dependency. The binary loaded the autoloader from `dirname(__DIR__) .
   '/vendor/autoload.php'`, a path that only exists when depone is the root

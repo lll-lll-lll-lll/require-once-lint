@@ -7,12 +7,15 @@ namespace Depone\Internal\Tokenizer;
 use PhpParser\ConstExprEvaluationException;
 use PhpParser\ConstExprEvaluator;
 use PhpParser\Error;
+use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Name;
 use PhpParser\Node\Scalar;
 use PhpParser\Node\Stmt;
+use PhpParser\NodeFinder;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
+use PhpToken;
 
 /**
  * Parser for include/require statements and define() calls.
@@ -39,7 +42,7 @@ final class IncludeExprParser
     /**
      * Parses a define() call and extracts the constant name and value.
      *
-     * @param list<Token> $tokens Token list
+     * @param list<PhpToken> $tokens Token list
      * @param int $index Position of the `define` T_STRING token
      * @param array<string, string> $consts Map of known constants
      * @param string $file Path of the file currently being analyzed
@@ -88,9 +91,9 @@ final class IncludeExprParser
      * Example: require_once LIB_DIR . '/foo.php';  -> [LIB_DIR, '.', '/foo.php']
      * Example: require_once(LIB_DIR . '/foo.php'); -> ['(', LIB_DIR, '.', '/foo.php', ')']
      *
-     * @param list<Token> $tokens Token list
+     * @param list<PhpToken> $tokens Token list
      * @param int $index Position of the require/include token
-     * @return list<Token> Argument token list
+     * @return list<PhpToken> Argument token list
      */
     public function readIncludeExprTokens(array $tokens, int $index): array
     {
@@ -110,7 +113,7 @@ final class IncludeExprParser
     /**
      * Evaluates a statically resolvable expression and returns its path string.
      *
-     * @param list<Token> $tokens Expression token list
+     * @param list<PhpToken> $tokens Expression token list
      * @param array<string, string> $consts Map of known constants
      * @param string $file Path of the file being analyzed, used for __DIR__ and __FILE__
      * @return string|null Evaluated path string, or null when it cannot be resolved
@@ -123,6 +126,74 @@ final class IncludeExprParser
         }
 
         return $this->evaluateToString($expr, $consts, $file);
+    }
+
+    /**
+     * Classifies why an include expression could not be statically resolved,
+     * from the AST rather than the raw tokens: the node kinds decide the
+     * reason, and the earliest-starting marker in source order wins — the
+     * same "first blocking construct" a left-to-right token scan reports. On
+     * a position tie (a method call starts at its `$object` receiver) the
+     * variable is the more precise reason. Snippets php-parser cannot parse
+     * fall back to {@see TokenHelper::classifyUnresolvableReason()}.
+     *
+     * @param list<PhpToken> $tokens Expression token list
+     * @return string Reason (variable, method_call, static_access, complex)
+     */
+    public function classifyUnresolvableReason(array $tokens): string
+    {
+        $expr = $this->parseExpr(TokenHelper::tokensToString($tokens));
+        if ($expr === null) {
+            return TokenHelper::classifyUnresolvableReason($tokens);
+        }
+
+        $ranks = [
+            TokenHelper::REASON_VARIABLE => 0,
+            TokenHelper::REASON_METHOD_CALL => 1,
+            TokenHelper::REASON_STATIC_ACCESS => 2,
+        ];
+        $best = null;
+        $bestKey = null;
+
+        foreach ((new NodeFinder())->find([$expr], self::isUnresolvableMarker(...)) as $node) {
+            $reason = self::markerReason($node);
+            $key = [$node->getStartFilePos(), $ranks[$reason]];
+            if ($bestKey === null || $key < $bestKey) {
+                $bestKey = $key;
+                $best = $reason;
+            }
+        }
+
+        return $best ?? TokenHelper::REASON_COMPLEX;
+    }
+
+    private static function isUnresolvableMarker(Node $node): bool
+    {
+        return $node instanceof Expr\Variable
+            || $node instanceof Expr\MethodCall
+            || $node instanceof Expr\NullsafeMethodCall
+            || $node instanceof Expr\PropertyFetch
+            || $node instanceof Expr\NullsafePropertyFetch
+            || $node instanceof Expr\StaticCall
+            || $node instanceof Expr\StaticPropertyFetch
+            || $node instanceof Expr\ClassConstFetch;
+    }
+
+    private static function markerReason(Node $node): string
+    {
+        if ($node instanceof Expr\Variable) {
+            return TokenHelper::REASON_VARIABLE;
+        }
+        if (
+            $node instanceof Expr\MethodCall
+            || $node instanceof Expr\NullsafeMethodCall
+            || $node instanceof Expr\PropertyFetch
+            || $node instanceof Expr\NullsafePropertyFetch
+        ) {
+            return TokenHelper::REASON_METHOD_CALL;
+        }
+
+        return TokenHelper::REASON_STATIC_ACCESS;
     }
 
     /**
@@ -237,9 +308,9 @@ final class IncludeExprParser
      * Reads tokens until the matching closing parenthesis.
      * Assumes the cursor is positioned just after an opening `(` (depth = 1).
      *
-     * @param list<Token> $tokens Token list
+     * @param list<PhpToken> $tokens Token list
      * @param int $cursor Position just after the opening `(`
-     * @return array{0: list<Token>, 1: int} [collected tokens, cursor pointing at the matching `)`]
+     * @return array{0: list<PhpToken>, 1: int} [collected tokens, cursor pointing at the matching `)`]
      */
     private function readUntilMatchingCloseParen(array $tokens, int $cursor): array
     {
