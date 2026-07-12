@@ -3,8 +3,32 @@
 
 declare(strict_types=1);
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+(static function (): void {
+    // Composer 2.2+ injects the consumer's autoloader path into the generated
+    // bin proxy; prefer it so we load exactly what Composer resolved.
+    $injected = $GLOBALS['_composer_autoload_path'] ?? null;
+    if (is_string($injected)) {
+        require $injected;
+        return;
+    }
 
-use Depone\Internal\Cli\CliApplication;
+    // Fallback for older Composer and direct `php bin/depone` runs.
+    $candidates = [
+        // Installed as a dependency: vendor/depone/depone/bin -> the consumer's vendor/autoload.php.
+        __DIR__ . '/../../../autoload.php',
+        // Running from a checkout of depone itself.
+        __DIR__ . '/../vendor/autoload.php',
+    ];
 
-exit((new CliApplication())($argv));
+    foreach ($candidates as $file) {
+        if (is_file($file)) {
+            require $file;
+            return;
+        }
+    }
+
+    fwrite(STDERR, "depone: Composer autoloader not found. Run 'composer install' first." . PHP_EOL);
+    exit(2);
+})();
+
+exit((new \Depone\Internal\Cli\CliApplication())($argv));

@@ -9,6 +9,17 @@ options, exit codes, and command output. PHP classes under `src/` are internal.
 
 ## [Unreleased]
 
+### Fixed
+
+- `vendor/bin/depone` no longer fatals when depone is installed as a Composer
+  dependency. The binary loaded the autoloader from `dirname(__DIR__) .
+  '/vendor/autoload.php'`, a path that only exists when depone is the root
+  package, so the documented `composer require --dev depone/depone` install
+  crashed on startup with a missing-`vendor/autoload.php` error. The binary now
+  prefers the autoloader path Composer injects into the generated bin proxy
+  (`$_composer_autoload_path`), falling back to probing the dependency and
+  root-package layouts.
+
 ## [0.4.0] - 2026-07-12
 
 ### Added
